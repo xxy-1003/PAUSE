@@ -1,6 +1,12 @@
 import streamlit as st
 import time
 import random
+import sys
+import os
+
+# Add parent directory to path to import data_storage
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from data_storage import session_storage
 
 # Page configuration for Timer page
 st.set_page_config(
@@ -158,6 +164,14 @@ if 'current_quote' not in st.session_state:
     st.session_state.current_quote = get_focus_quote()
 if 'elapsed_focus_time' not in st.session_state:
     st.session_state.elapsed_focus_time = 0
+if 'show_session_feedback' not in st.session_state:
+    st.session_state.show_session_feedback = False
+if 'session_productivity_score' not in st.session_state:
+    st.session_state.session_productivity_score = 85
+if 'session_notes' not in st.session_state:
+    st.session_state.session_notes = ""
+if 'session_already_saved' not in st.session_state:
+    st.session_state.session_already_saved = False  # Flag to prevent duplicate saves
 
 # Initialize session state for motion detection simulation
 if 'motion_status' not in st.session_state:
@@ -322,6 +336,8 @@ with st.container():
                     st.session_state.timer_running = True
                     st.session_state.timer_paused = False
                     st.session_state.timer_started = True
+                    # Reset session saved flag for new session
+                    st.session_state.session_already_saved = False
                 elif st.session_state.timer_running and not st.session_state.timer_paused:
                     # Pausing the running focus timer
                     st.session_state.timer_paused = True
@@ -358,29 +374,44 @@ with st.container():
                 st.rerun()
     
     with col_reset:
-        # Reset button (resets current mode timer and workflow states)
-        if st.button("🔄 Reset", use_container_width=True):
-            if st.session_state.current_mode == "Focus":
-                st.session_state.remaining_time = st.session_state.original_time
-                st.session_state.timer_running = False
-                st.session_state.timer_paused = False
-                st.session_state.timer_started = False
-                # Reset motion detection state
-                st.session_state.motion_status = "Focused"
-                st.session_state.motion_last_check = 0
-                st.session_state.unfocused_duration = 0
-                st.session_state.motion_warning_shown = False
-                st.session_state.motion_auto_paused = False
-            else:
-                st.session_state.break_remaining_time = st.session_state.break_original_time
-                st.session_state.break_running = False
-                st.session_state.break_paused = False
-            
-            # Reset workflow states
-            st.session_state.focus_completed = False
-            st.session_state.show_start_break_button = False
-            
-            st.rerun()
+        # Create columns for reset and save buttons
+        col_reset_inner, col_save_inner = st.columns(2)
+        
+        with col_reset_inner:
+            # Reset button (resets current mode timer and workflow states)
+            if st.button("🔄 Reset", use_container_width=True):
+                if st.session_state.current_mode == "Focus":
+                    st.session_state.remaining_time = st.session_state.original_time
+                    st.session_state.timer_running = False
+                    st.session_state.timer_paused = False
+                    st.session_state.timer_started = False
+                    # Reset motion detection state
+                    st.session_state.motion_status = "Focused"
+                    st.session_state.motion_last_check = 0
+                    st.session_state.unfocused_duration = 0
+                    st.session_state.motion_warning_shown = False
+                    st.session_state.motion_auto_paused = False
+                    # Reset session saved flag
+                    st.session_state.session_already_saved = False
+                else:
+                    st.session_state.break_remaining_time = st.session_state.break_original_time
+                    st.session_state.break_running = False
+                    st.session_state.break_paused = False
+                
+                # Reset workflow states
+                st.session_state.focus_completed = False
+                st.session_state.show_start_break_button = False
+                st.session_state.show_session_feedback = False
+                
+                st.rerun()
+        
+        with col_save_inner:
+            # Save incomplete session button (only shown during focus sessions)
+            if st.session_state.current_mode == "Focus" and st.session_state.timer_started:
+                if st.button("💾 Save Session", use_container_width=True, type="secondary"):
+                    # Show feedback form for incomplete session
+                    st.session_state.show_session_feedback = True
+                    st.rerun()
     
     with col_switch:
         # Mode switch button (manual override)
@@ -406,6 +437,7 @@ with st.container():
                 st.session_state.break_paused = False
                 st.session_state.focus_completed = False
                 st.session_state.show_start_break_button = False
+                st.session_state.show_session_feedback = False
             else:
                 # Switch to focus mode
                 st.session_state.current_mode = "Focus"
@@ -421,8 +453,111 @@ with st.container():
                 st.session_state.motion_auto_paused = False
                 st.session_state.focus_completed = False
                 st.session_state.show_start_break_button = False
+                st.session_state.show_session_feedback = False
+                # Reset session saved flag for new session
+                st.session_state.session_already_saved = False
             
             st.rerun()
+
+# Session Feedback Section (shown when session is completed)
+if st.session_state.show_session_feedback:
+    st.markdown("---")
+    st.markdown("### 📝 Session Feedback")
+    
+    with st.container():
+        st.info("How was your focus session? Your feedback helps improve your analytics.")
+        
+        col_feedback1, col_feedback2 = st.columns(2)
+        
+        with col_feedback1:
+            # Productivity score input
+            st.session_state.session_productivity_score = st.slider(
+                "Productivity Score (0-100)",
+                min_value=0,
+                max_value=100,
+                value=st.session_state.session_productivity_score,
+                help="How productive were you during this session?"
+            )
+            
+            # Session type selection
+            session_type = st.selectbox(
+                "Session Type",
+                ["focus", "deep_work", "learning", "planning", "creative"],
+                index=0,
+                help="What type of work were you doing?"
+            )
+        
+        with col_feedback2:
+            # Session notes
+            st.session_state.session_notes = st.text_area(
+                "Session Notes (optional)",
+                value=st.session_state.session_notes,
+                height=100,
+                placeholder="What did you work on? Any distractions? What went well?",
+                help="Optional notes about your session"
+            )
+        
+        # Save feedback button
+        col_save1, col_save2, col_save3 = st.columns([1, 2, 1])
+        with col_save2:
+            if st.button("💾 Save Session Feedback", use_container_width=True, type="primary"):
+                try:
+                    # Calculate actual focus duration (original time minus remaining time)
+                    actual_focus_duration = st.session_state.original_time - st.session_state.remaining_time
+                    
+                    # Determine if session was completed (timer reached 0)
+                    session_completed = st.session_state.remaining_time == 0
+                    
+                    session_id = session_storage.save_session(
+                        focus_duration=actual_focus_duration,
+                        break_duration=st.session_state.break_original_time,
+                        completed=session_completed,
+                        productivity_score=st.session_state.session_productivity_score,
+                        session_type=session_type,
+                        notes=st.session_state.session_notes
+                    )
+                    
+                    completion_status = "completed" if session_completed else "saved"
+                    st.success(f"✅ Session #{session_id} {completion_status} with your feedback!")
+                    st.session_state.show_session_feedback = False
+                    st.session_state.session_notes = ""  # Reset notes
+                    st.session_state.session_already_saved = True  # Mark as saved
+                    
+                    # If session was completed, increment counter
+                    if session_completed:
+                        st.session_state.completed_sessions += 1
+                    
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"⚠️ Could not save session: {str(e)}")
+            
+            if st.button("⏭️ Skip Feedback", use_container_width=True, type="secondary"):
+                # Save session with default values
+                try:
+                    actual_focus_duration = st.session_state.original_time - st.session_state.remaining_time
+                    session_completed = st.session_state.remaining_time == 0
+                    
+                    session_id = session_storage.save_session(
+                        focus_duration=actual_focus_duration,
+                        break_duration=st.session_state.break_original_time,
+                        completed=session_completed,
+                        productivity_score=85,  # Default score
+                        session_type="focus",
+                        notes="Session saved without feedback"
+                    )
+                    
+                    completion_status = "completed" if session_completed else "saved"
+                    st.info(f"📝 Session #{session_id} {completion_status} with default values")
+                    st.session_state.show_session_feedback = False
+                    st.session_state.session_already_saved = True  # Mark as saved
+                    
+                    # If session was completed, increment counter
+                    if session_completed:
+                        st.session_state.completed_sessions += 1
+                    
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"⚠️ Could not save session: {str(e)}")
 
 # Session Statistics and Settings
 st.markdown("---")
@@ -446,34 +581,6 @@ with col_stats:
         st.progress(session_progress)
         st.caption(f"Daily progress: {st.session_state.completed_sessions}/{target_sessions} sessions")
         
-        # Complete session button (only available in focus mode)
-        if st.session_state.current_mode == "Focus":
-            if st.button("✅ Mark Session Complete", use_container_width=True):
-                # Allow completion if timer is at or near 0
-                if st.session_state.remaining_time <= 5:  # Allow small buffer
-                    st.session_state.completed_sessions += 1
-                    st.session_state.remaining_time = st.session_state.original_time
-                    st.session_state.timer_running = False
-                    st.session_state.timer_paused = False
-                    st.session_state.timer_started = False
-                    # Reset motion detection state
-                    st.session_state.motion_status = "Focused"
-                    st.session_state.motion_last_check = 0
-                    st.session_state.unfocused_duration = 0
-                    st.session_state.motion_warning_shown = False
-                    st.session_state.motion_auto_paused = False
-                    # Reset workflow states
-                    st.session_state.focus_completed = False
-                    st.session_state.show_start_break_button = False
-                    st.balloons()
-                    st.success("🎉 Focus session completed! Great work!")
-                    st.rerun()
-                else:
-                    st.warning(f"Timer at {st.session_state.remaining_time//60:02d}:{st.session_state.remaining_time%60:02d}. Must reach 0:00 to complete a session")
-        else:
-            st.button("✅ Mark Session Complete", use_container_width=True, disabled=True)
-            st.caption("Session completion only available during focus mode")
-
 with col_settings:
     with st.container():
         st.markdown("#### ⚙️ Timer Settings")
@@ -757,81 +864,88 @@ with st.container():
 # Timer countdown logic with motion detection and improved workflow system
 # This runs after the UI is rendered to handle the countdown
 
+# First, check if timer just completed but feedback hasn't been shown yet
+if st.session_state.current_mode == "Focus" and st.session_state.remaining_time == 0 and not st.session_state.timer_running:
+    # Timer is at 0 and not running (completed)
+    if not st.session_state.session_already_saved and not st.session_state.show_session_feedback:
+        # Show session feedback form for completed session
+        st.session_state.show_session_feedback = True
+        st.session_state.session_already_saved = True
+        st.balloons()
+
 # Check if focus timer is running and not paused
-if st.session_state.timer_running and not st.session_state.timer_paused and st.session_state.current_mode == "Focus":
-    # Decrease focus timer by 1 second
-    if st.session_state.remaining_time > 0:
-        # Use time.sleep to wait 1 second before decreasing
-        time.sleep(1)
-        st.session_state.remaining_time -= 1
-        # Track elapsed focus time
-        st.session_state.elapsed_focus_time += 1
+elif st.session_state.timer_running and not st.session_state.timer_paused and st.session_state.current_mode == "Focus":
+    # Timer is running, decrease by 1 second
+    # Use time.sleep to wait 1 second before decreasing
+    time.sleep(1)
+    st.session_state.remaining_time -= 1
+    # Track elapsed focus time
+    st.session_state.elapsed_focus_time += 1
+    
+    # Motion detection simulation - check every 10 seconds
+    current_time = st.session_state.original_time - st.session_state.remaining_time
+    if current_time - st.session_state.motion_last_check >= 10:
+        # Update motion status
+        st.session_state.motion_status = simulate_motion_detection()
+        st.session_state.motion_last_check = current_time
         
-        # Motion detection simulation - check every 10 seconds
-        current_time = st.session_state.original_time - st.session_state.remaining_time
-        if current_time - st.session_state.motion_last_check >= 10:
-            # Update motion status
-            st.session_state.motion_status = simulate_motion_detection()
-            st.session_state.motion_last_check = current_time
+        # Track unfocused duration
+        if st.session_state.motion_status == "Unfocused Motion Detected":
+            st.session_state.unfocused_duration += 10
             
-            # Track unfocused duration
-            if st.session_state.motion_status == "Unfocused Motion Detected":
-                st.session_state.unfocused_duration += 10
-                
-                # Check if unfocused for more than 20 seconds
-                if st.session_state.unfocused_duration > 20 and not st.session_state.motion_auto_paused:
-                    # Auto-pause the timer
-                    st.session_state.timer_paused = True
-                    st.session_state.motion_auto_paused = True
-                    st.session_state.motion_warning_shown = True
-            else:
-                # Reset unfocused duration when focused
-                st.session_state.unfocused_duration = 0
-                st.session_state.motion_warning_shown = False
-        
-        # Check if focus timer reached 0
-        if st.session_state.remaining_time <= 0:
-            st.session_state.remaining_time = 0
-            st.session_state.timer_running = False
-            st.session_state.timer_paused = False
-            st.session_state.timer_started = False
-            
-            # Reset motion detection state
-            st.session_state.motion_status = "Focused"
+            # Check if unfocused for more than 20 seconds
+            if st.session_state.unfocused_duration > 20 and not st.session_state.motion_auto_paused:
+                # Auto-pause the timer
+                st.session_state.timer_paused = True
+                st.session_state.motion_auto_paused = True
+                st.session_state.motion_warning_shown = True
+        else:
+            # Reset unfocused duration when focused
             st.session_state.unfocused_duration = 0
             st.session_state.motion_warning_shown = False
-            st.session_state.motion_auto_paused = False
-            
-            st.balloons()
-            
-            # Handle workflow based on auto-start break setting
-            if st.session_state.auto_start_break:
-                # Auto-start break mode
-                st.session_state.current_mode = "Break"
-                st.session_state.break_remaining_time = st.session_state.break_original_time
-                st.session_state.break_running = True
-                st.session_state.break_paused = False
-                st.session_state.focus_completed = False
-                st.session_state.show_start_break_button = False
-                st.success("🎉 Focus session completed! Starting break timer...")
-            else:
-                # Show "Start Break" button instead of auto-starting
-                st.session_state.focus_completed = True
-                st.session_state.show_start_break_button = True
-                st.success("🎉 Focus session completed! Ready for a break?")
-        
-        # Rerun to update the display
-        st.rerun()
-    else:
-        # Focus timer already at 0, stop it
+    
+    # Check if focus timer just reached 0
+    if st.session_state.remaining_time <= 0:
+        st.session_state.remaining_time = 0
         st.session_state.timer_running = False
         st.session_state.timer_paused = False
         st.session_state.timer_started = False
+        
         # Reset motion detection state
         st.session_state.motion_status = "Focused"
         st.session_state.unfocused_duration = 0
         st.session_state.motion_warning_shown = False
         st.session_state.motion_auto_paused = False
+        
+        # Only increment completed sessions and show feedback if session hasn't been saved yet
+        if not st.session_state.session_already_saved:
+            # Auto-complete session counter
+            st.session_state.completed_sessions += 1
+            
+            # Show session feedback form
+            st.session_state.show_session_feedback = True
+            st.session_state.session_already_saved = True
+            
+            st.balloons()
+        
+        # Handle workflow based on auto-start break setting
+        if st.session_state.auto_start_break:
+            # Auto-start break mode
+            st.session_state.current_mode = "Break"
+            st.session_state.break_remaining_time = st.session_state.break_original_time
+            st.session_state.break_running = True
+            st.session_state.break_paused = False
+            st.session_state.focus_completed = False
+            st.session_state.show_start_break_button = False
+            st.success("🎉 Focus session completed! Starting break timer...")
+        else:
+            # Show Start Break button
+            st.session_state.focus_completed = True
+            st.session_state.show_start_break_button = True
+            st.success("🎉 Focus session completed! Ready for a break?")
+    
+    # Rerun to update the display after each second
+    st.rerun()
 
 # Check if break timer is running and not paused
 elif st.session_state.break_running and not st.session_state.break_paused and st.session_state.current_mode == "Break":
@@ -875,6 +989,37 @@ elif st.session_state.break_running and not st.session_state.break_paused and st
         # Break timer already at 0, stop it
         st.session_state.break_running = False
         st.session_state.break_paused = False
+
+# Debug information (collapsed by default)
+with st.expander("🐛 Debug Information"):
+    st.markdown("### Session State Debug")
+    
+    col_debug1, col_debug2 = st.columns(2)
+    
+    with col_debug1:
+        st.write("**Timer State:**")
+        st.write(f"- timer_running: {st.session_state.timer_running}")
+        st.write(f"- timer_paused: {st.session_state.timer_paused}")
+        st.write(f"- timer_started: {st.session_state.timer_started}")
+        st.write(f"- remaining_time: {st.session_state.remaining_time}s ({st.session_state.remaining_time // 60}:{st.session_state.remaining_time % 60:02d})")
+        st.write(f"- original_time: {st.session_state.original_time}s")
+        st.write(f"- current_mode: {st.session_state.current_mode}")
+    
+    with col_debug2:
+        st.write("**Session Saving State:**")
+        st.write(f"- session_already_saved: {st.session_state.session_already_saved}")
+        st.write(f"- show_session_feedback: {st.session_state.show_session_feedback}")
+        st.write(f"- completed_sessions: {st.session_state.completed_sessions}")
+        st.write(f"- focus_completed: {st.session_state.focus_completed}")
+        st.write(f"- show_start_break_button: {st.session_state.show_start_break_button}")
+        
+        # Test database connection
+        if st.button("Test Database Connection", type="secondary"):
+            try:
+                count = session_storage.get_session_count()
+                st.success(f"Database connection OK. Total sessions: {count}")
+            except Exception as e:
+                st.error(f"Database error: {str(e)}")
 
 # Footer
 st.markdown("---")
