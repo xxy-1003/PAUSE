@@ -263,6 +263,60 @@ st.markdown("""
         font-weight: 600;
     }
     
+    /* Progress bar styling */
+    .progress-container {
+        background: #f0f0f0;
+        border-radius: 10px;
+        height: 20px;
+        overflow: hidden;
+        position: relative;
+        margin: 10px 0;
+    }
+    
+    .progress-bar {
+        height: 100%;
+        border-radius: 10px;
+        transition: width 0.5s ease;
+    }
+    
+    .progress-label {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 5px;
+        font-size: 12px;
+        color: #666;
+    }
+    
+    /* Metric progress bars */
+    .metric-progress {
+        margin-bottom: 12px;
+    }
+    
+    .metric-progress-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 4px;
+    }
+    
+    .metric-progress-bar {
+        background: #f0f0f0;
+        border-radius: 5px;
+        height: 8px;
+        overflow: hidden;
+    }
+    
+    .metric-progress-fill {
+        height: 100%;
+        border-radius: 5px;
+    }
+    
+    .metric-progress-desc {
+        font-size: 11px;
+        color: #666;
+        margin-top: 2px;
+    }
+    
     /* Responsive adjustments */
     @media (max-width: 768px) {
         .main-title {
@@ -281,11 +335,8 @@ st.markdown("""
 # Sidebar navigation has been removed and replaced with top navigation
 # Date range selector moved to main page for better accessibility
 
-# Initialize days_to_show in session state if not exists
-if 'days_to_show' not in st.session_state:
-    st.session_state.days_to_show = 30
-
-# Date range selector will be added to main page layout
+# Use default 30 days for analytics data
+days_to_show = 30
 
 # Helper functions for data analysis
 def calculate_weekly_trend(current, previous):
@@ -311,13 +362,29 @@ def get_day_name(date_str):
 def calculate_burnout_level(daily_summary, insights):
     """Calculate burnout level based on focus patterns with more meaningful metrics"""
     if daily_summary.empty:
-        return "Low", 15
+        return "Low", 15, {
+            'focus_intensity': 0,
+            'streak_length': 0,
+            'session_length': 0,
+            'rest_frequency': 0,
+            'consistency': 0,
+            'completion_rate': 0,
+            'distractions': 0
+        }
     
     # Get last 7 days data
     last_7_days = daily_summary.head(7)
     
     if last_7_days.empty:
-        return "Low", 15
+        return "Low", 15, {
+            'focus_intensity': 0,
+            'streak_length': 0,
+            'session_length': 0,
+            'rest_frequency': 0,
+            'consistency': 0,
+            'completion_rate': 0,
+            'distractions': 0
+        }
     
     # Calculate meaningful metrics
     total_focus_hours = last_7_days['total_focus_hours'].sum()
@@ -381,24 +448,100 @@ def calculate_burnout_level(daily_summary, insights):
     else:
         consistency_factor = 70  # Very consistent (potentially rigid)
     
+    # Factor 6: Completion rate
+    completion_rate = insights.get('completion_rate', 0)
+    if completion_rate >= 90:
+        completion_factor = 20  # High completion, low risk
+    elif completion_rate >= 70:
+        completion_factor = 40  # Good completion
+    elif completion_rate >= 50:
+        completion_factor = 60  # Moderate completion
+    else:
+        completion_factor = 80  # Low completion, high risk
+    
+    # Factor 7: Distractions (incomplete sessions)
+    incomplete_sessions = insights.get('incomplete_sessions', 0)
+    total_sessions = insights.get('sessions_in_range', 0) + incomplete_sessions
+    if total_sessions > 0:
+        distraction_rate = (incomplete_sessions / total_sessions * 100)
+        if distraction_rate <= 10:
+            distraction_factor = 20  # Low distractions
+        elif distraction_rate <= 25:
+            distraction_factor = 40  # Moderate distractions
+        elif distraction_rate <= 50:
+            distraction_factor = 60  # High distractions
+        else:
+            distraction_factor = 80  # Very high distractions
+    else:
+        distraction_factor = 20  # No sessions, low risk
+    
     # Calculate burnout score (weighted average with improved weights)
     burnout_score = (
-        focus_factor * 0.25 +      # Daily intensity
-        streak_factor * 0.20 +     # Streak length
-        intensity_factor * 0.20 +  # Session length
-        rest_factor * 0.20 +       # Rest days
-        consistency_factor * 0.15  # Schedule consistency
+        focus_factor * 0.20 +      # Daily intensity
+        streak_factor * 0.15 +     # Streak length
+        intensity_factor * 0.15 +  # Session length
+        rest_factor * 0.15 +       # Rest days
+        consistency_factor * 0.15 + # Schedule consistency
+        completion_factor * 0.10 + # Completion rate
+        distraction_factor * 0.10  # Distractions
     )
     
     # Determine level with clearer thresholds
     if burnout_score < 35:
-        return "Low", int(burnout_score)
+        level = "Low"
     elif burnout_score < 55:
-        return "Moderate", int(burnout_score)
+        level = "Moderate"
     elif burnout_score < 70:
-        return "High", int(burnout_score)
+        level = "High"
     else:
-        return "Very High", int(burnout_score)
+        level = "Very High"
+    
+    # Return supporting metrics
+    supporting_metrics = {
+        'focus_intensity': focus_factor,
+        'streak_length': streak_factor,
+        'session_length': intensity_factor,
+        'rest_frequency': rest_factor,
+        'consistency': consistency_factor,
+        'completion_rate': completion_factor,
+        'distractions': distraction_factor
+    }
+    
+    return level, int(burnout_score), supporting_metrics
+
+def get_today_sessions_by_hour():
+    """Get today's sessions grouped by hour for hourly activity chart"""
+    today = datetime.now().strftime("%Y-%m-%d")
+    
+    # Get today's sessions
+    today_sessions = session_storage.get_sessions(start_date=today, end_date=today)
+    
+    if today_sessions.empty:
+        return pd.DataFrame()
+    
+    # Convert created_at to datetime and extract hour
+    today_sessions['created_at_dt'] = pd.to_datetime(today_sessions['created_at'])
+    today_sessions['hour'] = today_sessions['created_at_dt'].dt.hour
+    
+    # Group by hour
+    hourly_data = today_sessions.groupby('hour').agg({
+        'focus_duration': 'sum',  # Total focus seconds per hour
+        'session_id': 'count'     # Number of sessions per hour
+    }).reset_index()
+    
+    # Rename columns
+    hourly_data = hourly_data.rename(columns={
+        'focus_duration': 'total_focus_seconds',
+        'session_id': 'session_count'
+    })
+    
+    # Convert seconds to minutes
+    hourly_data['focus_minutes'] = hourly_data['total_focus_seconds'] / 60
+    
+    # Sort by hour
+    hourly_data = hourly_data.sort_values('hour')
+    
+    return hourly_data
 
 def generate_sample_data_if_empty():
     """Generate sample data if database is empty (for demo purposes)"""
@@ -450,37 +593,13 @@ create_top_navigation(current_page="Analytics")
 st.markdown("<h1 class='main-title'>PAUSE</h1>", unsafe_allow_html=True)
 st.markdown("<p class='subtitle'>Analytics Dashboard 📊</p>", unsafe_allow_html=True)
 
-# Analytics Settings Section
-st.markdown("### 📊 Analytics Settings")
-
-col_set1, col_set2 = st.columns(2)
-
-with col_set1:
-    # Date range selector
-    days_to_show = st.slider(
-        "Show data for last (days):",
-        min_value=7,
-        max_value=90,
-        value=st.session_state.days_to_show,
-        help="Select how many days of data to display",
-        key="analytics_days_slider"
-    )
-    st.session_state.days_to_show = days_to_show
-
-with col_set2:
-    st.markdown("**Data Range**")
-    st.markdown(f"### {days_to_show} days")
-    st.caption(f"Showing analytics for the last {days_to_show} days")
-
-st.markdown("---")
-
 # Generate sample data if database is empty
 generate_sample_data_if_empty()
 
 # Get real data from database using the selected date range
 daily_summary = session_storage.get_daily_summary(days=days_to_show)
-weekly_summary = session_storage.get_weekly_summary(weeks=8)
-insights = session_storage.get_advanced_insights()
+weekly_summary = session_storage.get_weekly_summary(weeks=days_to_show//7 if days_to_show >= 7 else 1)
+insights = session_storage.get_advanced_insights(days=days_to_show)
 today_summary = session_storage.get_today_summary()
 
 # Calculate current week vs last week
@@ -516,327 +635,444 @@ else:
     completion_rate_today = 0
 
 # ============================================
-# SECTION 1: KPI OVERVIEW (TOP SECTION)
+# TODAY SECTION
 # ============================================
-st.markdown("### 📈 KPI Overview")
+st.markdown("### 📅 Today")
 
-col1, col2, col3, col4 = st.columns(4)
+today_col1, today_col2, today_col3 = st.columns(3)
 
-with col1:
-    # Weekly Focus Time
+with today_col1:
+    # Today's Focus Time
     st.markdown('<div class="stat-card">', unsafe_allow_html=True)
-    st.markdown('<div class="metric-label">Weekly Focus Time</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="metric-value">{this_week_focus:.1f}h</div>', unsafe_allow_html=True)
-    trend = calculate_weekly_trend(this_week_focus, last_week_focus)
-    if trend >= 0:
-        st.markdown(f'<span class="metric-change positive">+{trend}% vs last week</span>', unsafe_allow_html=True)
+    st.markdown('<div class="metric-label">Focus Time</div>', unsafe_allow_html=True)
+    if not today_summary.empty:
+        today_focus = today_summary.iloc[0]['total_focus_hours']
+        st.markdown(f'<div class="metric-value">{today_focus:.1f}h</div>', unsafe_allow_html=True)
     else:
-        st.markdown(f'<span class="metric-change negative">{trend}% vs last week</span>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-value">0h</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-with col2:
-    # Average Focus Session
+with today_col2:
+    # Today's Sessions
     st.markdown('<div class="stat-card">', unsafe_allow_html=True)
-    st.markdown('<div class="metric-label">Average Focus Session</div>', unsafe_allow_html=True)
-    avg_session_display = format_time(this_week_avg_session)
-    st.markdown(f'<div class="metric-value">{avg_session_display}</div>', unsafe_allow_html=True)
-    trend = calculate_weekly_trend(this_week_avg_session, last_week_avg_session)
-    if trend >= 0:
-        st.markdown(f'<span class="metric-change positive">+{trend}% longer</span>', unsafe_allow_html=True)
+    st.markdown('<div class="metric-label">Sessions</div>', unsafe_allow_html=True)
+    if not today_summary.empty:
+        total_sessions = int(today_summary.iloc[0]['session_count'])
+        completed_sessions = int(today_summary.iloc[0]['completed_sessions'])
+        st.markdown(f'<div class="metric-value">{completed_sessions}/{total_sessions}</div>', unsafe_allow_html=True)
     else:
-        st.markdown(f'<span class="metric-change negative">{trend}% shorter</span>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-value">0/0</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-with col3:
-    # Sessions Completed
+with today_col3:
+    # Today's Completion Rate
     st.markdown('<div class="stat-card">', unsafe_allow_html=True)
-    st.markdown('<div class="metric-label">Sessions Completed</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="metric-value">{this_week_sessions}</div>', unsafe_allow_html=True)
-    trend = calculate_weekly_trend(this_week_sessions, last_week_sessions)
-    if trend >= 0:
-        st.markdown(f'<span class="metric-change positive">+{trend}% more</span>', unsafe_allow_html=True)
+    st.markdown('<div class="metric-label">Completion Rate</div>', unsafe_allow_html=True)
+    if not today_summary.empty and total_sessions_today > 0:
+        completion_rate = (completed_sessions_today / total_sessions_today * 100)
+        st.markdown(f'<div class="metric-value">{completion_rate:.0f}%</div>', unsafe_allow_html=True)
     else:
-        st.markdown(f'<span class="metric-change negative">{trend}% fewer</span>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-value">0%</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
-
-with col4:
-    # Streak
-    st.markdown('<div class="stat-card">', unsafe_allow_html=True)
-    st.markdown('<div class="metric-label">Focus Streak</div>', unsafe_allow_html=True)
-    streak = insights.get('current_streak', 0)
-    st.markdown(f'<div class="metric-value">{streak}</div>', unsafe_allow_html=True)
-    st.markdown('<div class="metric-label">days</div>', unsafe_allow_html=True)
-    if streak >= 7:
-        st.markdown('<span class="metric-change positive">🔥 Personal best!</span>', unsafe_allow_html=True)
-    elif streak >= 3:
-        st.markdown('<span class="metric-change positive">📈 Keep it up!</span>', unsafe_allow_html=True)
-    else:
-        st.markdown('<span class="metric-change">Start a streak!</span>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-st.markdown("<br>", unsafe_allow_html=True)
 
 # ============================================
-# SECTION 2: PRODUCTIVITY TREND (ONE CHART ONLY)
+# TODAY HOURLY ACTIVITY HEATMAP
 # ============================================
 st.markdown('<div class="chart-container">', unsafe_allow_html=True)
-st.markdown("### 📈 Weekly Focus Time Trend")
+st.markdown("### ⏰ Today's Hourly Focus Activity")
 
-if not daily_summary.empty and len(daily_summary) >= 7:
-    # Get last 7 days of data
-    weekly_data = daily_summary.head(7).copy()
-    weekly_data = weekly_data.sort_values('date')  # Sort by date
-    
-    # Create day names
-    weekly_data['Day'] = weekly_data['date'].apply(get_day_name)
-    
-    # Create a clean line chart for focus hours only
-    fig = go.Figure()
-    
-    # Add focus hours line
-    fig.add_trace(go.Scatter(
-        x=weekly_data['Day'],
-        y=weekly_data['total_focus_hours'].fillna(0),
-        name='Focus Hours',
-        mode='lines+markers',
-        line=dict(color='#8A2BE2', width=4),
-        marker=dict(size=10, color='#8A2BE2'),
-        fill='tozeroy',
-        fillcolor='rgba(138, 43, 226, 0.1)'
-    ))
-    
-    # Update layout for modern look
-    fig.update_layout(
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        hovermode='x unified',
-        showlegend=True,
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="center",
-            x=0.5,
-            font=dict(size=12)
-        ),
-        yaxis=dict(
-            title=dict(text='Focus Hours', font=dict(color='#8A2BE2', size=12)),
-            tickfont=dict(color='#8A2BE2'),
-            gridcolor='rgba(138, 43, 226, 0.1)',
-            showgrid=True
-        ),
-        xaxis=dict(
-            gridcolor='rgba(138, 43, 226, 0.1)',
-            showgrid=True
-        ),
-        height=400,
-        margin=dict(l=20, r=20, t=40, b=40)
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
-    st.caption("Your weekly focus time trend - aim for consistent daily focus")
+import pandas as pd
+import plotly.graph_objects as go
+
+# =========================
+# 1️⃣ MOCK DATA (for testing)
+# =========================
+mock_hourly_data = pd.DataFrame([
+    {"hour": 6, "focus_minutes": 0,  "session_count": 0},
+    {"hour": 7, "focus_minutes": 20, "session_count": 1},
+    {"hour": 8, "focus_minutes": 45, "session_count": 2},
+    {"hour": 9, "focus_minutes": 60, "session_count": 3},
+    {"hour": 10, "focus_minutes": 30, "session_count": 1},
+    {"hour": 11, "focus_minutes": 0,  "session_count": 0},
+    {"hour": 12, "focus_minutes": 25, "session_count": 1},
+    {"hour": 13, "focus_minutes": 10, "session_count": 1},
+    {"hour": 14, "focus_minutes": 55, "session_count": 2},
+    {"hour": 15, "focus_minutes": 70, "session_count": 3},
+    {"hour": 16, "focus_minutes": 40, "session_count": 2},
+    {"hour": 17, "focus_minutes": 15, "session_count": 1},
+    {"hour": 18, "focus_minutes": 0,  "session_count": 0},
+    {"hour": 19, "focus_minutes": 35, "session_count": 2},
+    {"hour": 20, "focus_minutes": 50, "session_count": 2},
+    {"hour": 21, "focus_minutes": 20, "session_count": 1},
+    {"hour": 22, "focus_minutes": 0,  "session_count": 0},
+])
+
+# =========================
+# 2️⃣ SWITCH MODE
+# =========================
+USE_MOCK = True  # 👉 改 False 就会用真实数据
+
+if USE_MOCK:
+    hourly_data = mock_hourly_data
 else:
-    st.info("📊 Not enough data yet. Complete more focus sessions to see your weekly trends!")
+    hourly_data = get_today_sessions_by_hour()
+
+# =========================
+# 3️⃣ CLEAN + AGGREGATE (REAL ONLY SAFE)
+# =========================
+if not hourly_data.empty:
+    hourly_data = (
+        hourly_data
+        .groupby('hour', as_index=False)
+        .agg({
+            'focus_minutes': 'sum',
+            'session_count': 'sum'
+        })
+    )
+
+    # fill missing hours (0–23)
+    all_hours = pd.DataFrame({"hour": list(range(24))})
+    hourly_data = all_hours.merge(hourly_data, on="hour", how="left")
+    hourly_data = hourly_data.fillna(0)
+
+    # =========================
+    # 4️⃣ HEATMAP DATA
+    # =========================
+    heatmap_data = [hourly_data["focus_minutes"].values]
+
+    # =========================
+    # 5️⃣ PLOTLY HEATMAP
+    # =========================
+    fig = go.Figure(
+        data=go.Heatmap(
+            z=heatmap_data,
+            x=list(range(24)),
+            y=["Today"],
+            colorscale=[
+                [0.0, "#F5F0FF"],
+                [0.2, "#D6B3FF"],
+                [0.4, "#B57CFF"],
+                [0.6, "#8A2BE2"],
+                [1.0, "#4B0082"]
+            ],
+            hovertemplate=
+                "<b>Hour %{x}:00</b><br>" +
+                "Focus: %{z:.1f} min<br>" +
+                "<extra></extra>",
+            colorbar=dict(
+                title="Focus Minutes"
+            )
+        )
+    )
+
+    # =========================
+    # 6️⃣ LAYOUT (your purple theme)
+    # =========================
+    fig.update_layout(
+        height=260,
+        margin=dict(l=20, r=20, t=20, b=20),
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+
+        xaxis=dict(
+            title=dict(
+                text="Hour of Day",
+                font=dict(color="#333333", size=13)
+            ),
+            tickfont=dict(color="#333333", size=12),
+            dtick=1,
+            showgrid=True,
+            gridcolor="rgba(0,0,0,0.05)"
+        ),
+
+        yaxis=dict(
+            showticklabels=False,
+            showgrid=False
+        )
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.caption("🟣 Darker = more focus time | Each cell = 1 hour of activity")
+
+else:
+    st.info("⏰ No sessions recorded today yet. Start your first focus session!")
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-st.markdown("<br>", unsafe_allow_html=True)
-
 # ============================================
-# SECTION 3: FOCUS BEHAVIOR INSIGHTS
+# THIS WEEK SECTION
 # ============================================
-st.markdown("### 🧠 Focus Behavior Insights")
+st.markdown("### 📊 This Week")
 
-insight_col1, insight_col2, insight_col3 = st.columns(3)
+week_col1, week_col2, week_col3 = st.columns(3)
 
-with insight_col1:
-    # Most Productive Day
-    st.markdown('<div class="insight-card">', unsafe_allow_html=True)
-    st.markdown('<span class="insight-icon">🏆</span> <span class="insight-title">Most Productive Day</span>', unsafe_allow_html=True)
-    if insights['most_productive_day']['date']:
-        date_obj = datetime.strptime(insights['most_productive_day']['date'], "%Y-%m-%d")
-        day_name = date_obj.strftime("%A")
-        st.markdown(f'<div class="insight-value">{day_name}</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="insight-description">{insights["most_productive_day"]["session_count"]} sessions on {insights["most_productive_day"]["date"]}</div>', unsafe_allow_html=True)
-    else:
-        st.markdown('<div class="insight-value">--</div>', unsafe_allow_html=True)
-        st.markdown('<div class="insight-description">Complete more sessions to see your best day</div>', unsafe_allow_html=True)
+with week_col1:
+    # Total Focus Hours this week
+    st.markdown('<div class="stat-card">', unsafe_allow_html=True)
+    st.markdown('<div class="metric-label">Total Focus Hours</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-value">{this_week_focus:.1f}h</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-with insight_col2:
-    # Focus Consistency Score
-    st.markdown('<div class="insight-card">', unsafe_allow_html=True)
-    st.markdown('<span class="insight-icon">📅</span> <span class="insight-title">Focus Consistency</span>', unsafe_allow_html=True)
-    consistency = insights.get('focus_consistency', 0)
-    st.markdown(f'<div class="insight-value">{consistency:.0f}%</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="insight-description">Days with focus sessions in last 30 days</div>', unsafe_allow_html=True)
+with week_col2:
+    # Average Daily Focus this week
+    st.markdown('<div class="stat-card">', unsafe_allow_html=True)
+    st.markdown('<div class="metric-label">Average Daily Focus</div>', unsafe_allow_html=True)
+    avg_daily_focus = this_week_focus / 7 if this_week_focus > 0 else 0
+    st.markdown(f'<div class="metric-value">{avg_daily_focus:.1f}h</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-with insight_col3:
-    # Energy Pattern (simplified)
-    st.markdown('<div class="insight-card">', unsafe_allow_html=True)
-    st.markdown('<span class="insight-icon">⚡</span> <span class="insight-title">Energy Pattern</span>', unsafe_allow_html=True)
-    if not daily_summary.empty and len(daily_summary) >= 7:
-        # Calculate average focus time by day of week
-        daily_summary['date_obj'] = pd.to_datetime(daily_summary['date'])
-        daily_summary['day_of_week'] = daily_summary['date_obj'].dt.day_name()
-        avg_by_day = daily_summary.groupby('day_of_week')['total_focus_hours'].mean()
-        
-        if not avg_by_day.empty:
-            best_day = avg_by_day.idxmax()
-            best_hours = avg_by_day.max()
-            st.markdown(f'<div class="insight-value">{best_day}</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="insight-description">{best_hours:.1f}h average focus</div>', unsafe_allow_html=True)
-        else:
-            st.markdown('<div class="insight-value">--</div>', unsafe_allow_html=True)
-            st.markdown('<div class="insight-description">Not enough data</div>', unsafe_allow_html=True)
-    else:
-        st.markdown('<div class="insight-value">--</div>', unsafe_allow_html=True)
-        st.markdown('<div class="insight-description">Complete sessions to see pattern</div>', unsafe_allow_html=True)
+with week_col3:
+    # Weekly Focus Hours (same as total, but keeping the label)
+    st.markdown('<div class="stat-card">', unsafe_allow_html=True)
+    st.markdown('<div class="metric-label">Weekly Focus Hours</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-value">{this_week_focus:.1f}h</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ============================================
-# SECTION 4: DAILY SNAPSHOT (LIGHTWEIGHT)
+# THIS WEEK AREA CHART
 # ============================================
-st.markdown("### 📅 Daily Snapshot")
+st.markdown('<div class="chart-container">', unsafe_allow_html=True)
+st.markdown("### 📈 This Week Focus Trend")
 
-if not today_summary.empty:
-    today_data = today_summary.iloc[0]
-    
-    col_daily1, col_daily2 = st.columns(2)
-    
-    with col_daily1:
-        # Simple KPI cards for today
-        st.markdown('<div class="stat-card">', unsafe_allow_html=True)
-        st.markdown('<div class="metric-label">Today\'s Focus Time</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="metric-value">{today_data["total_focus_hours"]:.1f}h</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        st.markdown('<div class="stat-card">', unsafe_allow_html=True)
-        st.markdown('<div class="metric-label">Sessions Completed</div>', unsafe_allow_html=True)
-        completed = int(today_data['completed_sessions'])
-        total = int(today_data['session_count'])
-        st.markdown(f'<div class="metric-value">{completed}/{total}</div>', unsafe_allow_html=True)
-        completion_rate = (completed / total * 100) if total > 0 else 0
-        if completion_rate >= 80:
-            st.markdown('<span class="metric-change positive">🎯 On track</span>', unsafe_allow_html=True)
-        else:
-            st.markdown('<span class="metric-change negative">⚠️ Needs improvement</span>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-    
-    with col_daily2:
-        # Simple donut chart for focus vs break ratio
-        st.markdown('<div class="stat-card">', unsafe_allow_html=True)
-        st.markdown('<div class="metric-label">Focus vs Break Ratio</div>', unsafe_allow_html=True)
-        
-        focus_hours = today_data['total_focus_hours']
-        break_hours = today_data['total_break_hours'] if 'total_break_hours' in today_data else 0
-        
-        if focus_hours + break_hours > 0:
-            # Create simple donut chart
-            labels = ['Focus', 'Break']
-            values = [focus_hours, break_hours]
-            colors = ['#8A2BE2', '#9370DB']
-            
-            fig_donut = go.Figure(data=[go.Pie(
-                labels=labels,
-                values=values,
-                hole=0.6,
-                marker=dict(colors=colors),
-                textinfo='label+percent',
-                hoverinfo='label+value',
-                direction='clockwise',
-                sort=False
-            )])
-            
-            fig_donut.update_layout(
-                height=250,
-                plot_bgcolor='white',
-                paper_bgcolor='white',
-                showlegend=False,
-                margin=dict(l=10, r=10, t=10, b=10)
-            )
-            
-            st.plotly_chart(fig_donut, use_container_width=True)
-        else:
-            st.info("No sessions completed today")
-        
-        st.markdown('</div>', unsafe_allow_html=True)
+import plotly.graph_objects as go
+import pandas as pd
+import numpy as np
+
+# =========================
+# 1️⃣ MOCK DATA (fallback)
+# =========================
+mock_week_data = pd.DataFrame([
+    {"day": "Mon", "focus_hours": 1.2},
+    {"day": "Tue", "focus_hours": 2.5},
+    {"day": "Wed", "focus_hours": 0.8},
+    {"day": "Thu", "focus_hours": 3.0},
+    {"day": "Fri", "focus_hours": 2.2},
+    {"day": "Sat", "focus_hours": 1.0},
+    {"day": "Sun", "focus_hours": 1.5},
+])
+
+# =========================
+# 2️⃣ GET REAL DATA
+# =========================
+USE_MOCK = False
+
+if not daily_summary.empty:
+    week_data = daily_summary.head(7).copy()
+    week_data = week_data.sort_values("date")
+    week_data["day"] = week_data["date"].apply(get_day_name)
+    week_data["focus_hours"] = week_data["total_focus_hours"]
 else:
-    st.info("📅 No sessions completed today. Start your first focus session to see daily metrics!")
+    week_data = mock_week_data
 
-st.markdown("<br>", unsafe_allow_html=True)
+# =========================
+# 3️⃣ FILL MISSING DAYS (important)
+# =========================
+all_days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+week_data = pd.DataFrame({"day": all_days}).merge(week_data, on="day", how="left")
+week_data["focus_hours"] = week_data["focus_hours"].fillna(0)
+
+# =========================
+# 4️⃣ AREA CHART
+# =========================
+fig = go.Figure()
+
+fig.add_trace(go.Scatter(
+    x=week_data["day"],
+    y=week_data["focus_hours"],
+    mode="lines+markers",
+    line=dict(color="#8A2BE2", width=3),
+    fill="tozeroy",   # 🔥 this makes it area chart
+    fillcolor="rgba(138, 43, 226, 0.2)",
+    marker=dict(size=6),
+    hovertemplate=
+        "<b>%{x}</b><br>" +
+        "Focus: %{y:.1f}h<br>" +
+        "<extra></extra>"
+))
+
+# =========================
+# 5️⃣ LAYOUT (your theme)
+# =========================
+fig.update_layout(
+    height=300,
+    margin=dict(l=20, r=20, t=20, b=20),
+    plot_bgcolor="white",
+    paper_bgcolor="white",
+    xaxis=dict(
+        title="Day",
+        tickfont=dict(color="#333333"),
+        gridcolor="rgba(0,0,0,0.05)"
+    ),
+    yaxis=dict(
+        title="Focus Hours",
+        tickfont=dict(color="#333333"),
+        gridcolor="rgba(0,0,0,0.05)"
+    )
+)
+
+st.plotly_chart(fig, use_container_width=True)
 
 # ============================================
-# SECTION 5: BURNOUT LEVEL (NEW FEATURE)
+# WEEKLY PERFORMANCE (STABLE FULL VERSION)
+# Calendar Range + Weekly Aggregation + Mock Fallback
 # ============================================
-st.markdown("### 🔥 Burnout Level Assessment")
 
-burnout_level, burnout_score = calculate_burnout_level(daily_summary, insights)
+st.markdown('<div class="chart-container">', unsafe_allow_html=True)
+st.markdown("### 📈 Weekly Focus Performance")
 
-col_burnout1, col_burnout2 = st.columns([1, 2])
+import pandas as pd
+import plotly.graph_objects as go
+from datetime import datetime
 
-with col_burnout1:
-    st.markdown('<div class="stat-card">', unsafe_allow_html=True)
-    st.markdown('<div class="metric-label">Burnout Risk</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="metric-value">{burnout_level}</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="metric-label">Score: {burnout_score}/100</div>', unsafe_allow_html=True)
-    
-    # Color-coded indicator
-    if burnout_level == "Low":
-        st.markdown('<div class="burnout-indicator burnout-low">✅ Healthy balance</div>', unsafe_allow_html=True)
-    elif burnout_level == "Moderate":
-        st.markdown('<div class="burnout-indicator burnout-medium">⚠️ Monitor workload</div>', unsafe_allow_html=True)
-    elif burnout_level == "High":
-        st.markdown('<div class="burnout-indicator burnout-high">🚨 Take a break</div>', unsafe_allow_html=True)
-    else:  # Very High
-        st.markdown('<div class="burnout-indicator burnout-high">🔥 Critical - Rest needed</div>', unsafe_allow_html=True)
-    
-    st.markdown('</div>', unsafe_allow_html=True)
+# =========================
+# 1️⃣ CALENDAR RANGE
+# =========================
+col1, col2 = st.columns(2)
 
-with col_burnout2:
-    st.markdown('<div class="stat-card">', unsafe_allow_html=True)
-    st.markdown('<div class="metric-label">Factors Considered</div>', unsafe_allow_html=True)
-    
-    factors = [
-        "Daily focus intensity (hours per day)",
-        "Current streak length & rest days", 
-        "Average session duration",
-        "Rest day frequency (per week)",
-        "Schedule consistency"
+with col1:
+    start_date = st.date_input("Start Date")
+
+with col2:
+    end_date = st.date_input("End Date")
+
+if start_date > end_date:
+    st.error("Start date must be before end date")
+    st.stop()
+
+# =========================
+# 2️⃣ MIN 5 WEEKS CHECK
+# =========================
+days_selected = (end_date - start_date).days + 1
+
+if days_selected < 35:
+    st.warning("⚠️ Please select at least 5 weeks (35 days minimum)")
+    st.stop()
+
+# =========================
+# 3️⃣ GET RAW DATA (NO CUSTOM FUNCTION)
+# =========================
+df = session_storage.get_daily_summary(days=365)
+
+# =========================
+# 4️⃣ SAFE FILTER BY DATE
+# =========================
+if not df.empty:
+    df["date"] = pd.to_datetime(df["date"])
+
+    df = df[
+        (df["date"] >= pd.to_datetime(start_date)) &
+        (df["date"] <= pd.to_datetime(end_date))
     ]
-    
-    for factor in factors:
-        st.markdown(f'<div style="margin-bottom: 8px;">• {factor}</div>', unsafe_allow_html=True)
-    
-    st.markdown("<br>")
-    
-    # Recommendations based on burnout level
-    if burnout_level == "Low":
-        st.markdown("**Recommendations:**")
-        st.markdown("- Maintain your current healthy balance")
-        st.markdown("- Continue regular breaks between sessions")
-        st.markdown("- Keep tracking your progress")
-    elif burnout_level == "Moderate":
-        st.markdown("**Recommendations:**")
-        st.markdown("- Consider taking more frequent breaks")
-        st.markdown("- Schedule at least 1 rest day per week")
-        st.markdown("- Monitor your energy levels daily")
-    elif burnout_level == "High":
-        st.markdown("**Recommendations:**")
-        st.markdown("- Take a complete day off from focused work")
-        st.markdown("- Engage in non-work activities")
-        st.markdown("- Reduce daily focus targets by 25%")
-    else:  # Very High
-        st.markdown("**Recommendations:**")
-        st.markdown("- **Take 2-3 days completely off work**")
-        st.markdown("- Seek support if feeling overwhelmed")
-        st.markdown("- Reevaluate your work-life balance")
-        st.markdown("- Consider professional help if needed")
-    
-    st.markdown('</div>', unsafe_allow_html=True)
+
+USE_MOCK = df.empty
+
+# =========================
+# 5️⃣ MOCK DATA (SAFE FALLBACK)
+# =========================
+if USE_MOCK:
+    weekly_df = pd.DataFrame([
+        {"week_label": "Week 1", "total_focus_hours": 6.2, "session_count": 8},
+        {"week_label": "Week 2", "total_focus_hours": 9.1, "session_count": 12},
+        {"week_label": "Week 3", "total_focus_hours": 4.5, "session_count": 6},
+        {"week_label": "Week 4", "total_focus_hours": 10.8, "session_count": 15},
+        {"week_label": "Week 5", "total_focus_hours": 7.4, "session_count": 10},
+    ])
+else:
+    # =========================
+    # 6️⃣ WEEKLY GROUPING
+    # =========================
+    df["week"] = df["date"].dt.isocalendar().week
+
+    weekly_df = df.groupby("week").agg({
+        "total_focus_hours": "sum",
+        "session_count": "sum"
+    }).reset_index()
+
+    weekly_df = weekly_df.sort_values("week")
+
+    weekly_df["week_label"] = [
+        f"Week {i+1}" for i in range(len(weekly_df))
+    ]
+
+# =========================
+# 7️⃣ COLOR SCALE
+# =========================
+def get_color(h):
+    if h < 5:
+        return "#D6B3FF"
+    elif h < 10:
+        return "#8A2BE2"
+    else:
+        return "#4B0082"
+
+colors = weekly_df["total_focus_hours"].apply(get_color)
+
+# =========================
+# 8️⃣ BAR CHART (ONE BAR PER WEEK)
+# =========================
+fig = go.Figure()
+
+fig.add_trace(go.Bar(
+    x=weekly_df["week_label"],
+    y=weekly_df["total_focus_hours"],
+    marker=dict(color=colors),
+    width=0.6,
+    hovertemplate=
+        "<b>%{x}</b><br>" +
+        "Focus: %{y:.1f}h<br>" +
+        "<extra></extra>"
+))
+
+# =========================
+# 9️⃣ SESSION LABELS
+# =========================
+for i, row in weekly_df.iterrows():
+    fig.add_annotation(
+        x=row["week_label"],
+        y=row["total_focus_hours"],
+        text=f"{int(row['session_count'])} sessions",
+        showarrow=False,
+        yshift=10,
+        font=dict(color="#333", size=11)
+    )
+
+# =========================
+# 🔟 LAYOUT
+# =========================
+fig.update_layout(
+    plot_bgcolor="white",
+    paper_bgcolor="white",
+
+    xaxis=dict(
+        title="Week",
+        tickfont=dict(color="#333"),
+        gridcolor="rgba(0,0,0,0.05)"
+    ),
+
+    yaxis=dict(
+        title="Total Focus Hours",
+        gridcolor="rgba(0,0,0,0.05)"
+    ),
+
+    height=420
+)
+
+st.plotly_chart(fig, use_container_width=True)
+
+# =========================
+# MODE INDICATOR
+# =========================
+if USE_MOCK:
+    st.info("📊 Showing mock data (no sessions in selected range)")
+else:
+    st.success("📊 Showing real analytics data")
+
+st.caption("Each bar = total focus per week | Minimum 5 weeks required")
+
+st.markdown('</div>', unsafe_allow_html=True)
 
 # Footer
 st.markdown("---")

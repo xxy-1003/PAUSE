@@ -305,10 +305,13 @@ class SessionStorage:
         
         return heatmap_data
     
-    def get_advanced_insights(self) -> Dict:
+    def get_advanced_insights(self, days: int = 30) -> Dict:
         """
         Calculate advanced insights from session data
         
+        Args:
+            days: Number of days to look back for insights
+            
         Returns:
             Dictionary with various insights
         """
@@ -316,33 +319,40 @@ class SessionStorage:
         
         insights = {}
         
-        # Total focus time
+        # Calculate date range
+        end_date = datetime.now().strftime("%Y-%m-%d")
+        start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+        
+        # Total focus time within date range
         cursor = conn.cursor()
-        cursor.execute("SELECT SUM(focus_duration) FROM sessions WHERE completed = 1")
+        cursor.execute("SELECT SUM(focus_duration) FROM sessions WHERE completed = 1 AND date BETWEEN ? AND ?", 
+                      (start_date, end_date))
         total_focus_seconds = cursor.fetchone()[0] or 0
         insights['total_focus_hours'] = total_focus_seconds / 3600
         
-        # Average focus duration
-        cursor.execute("SELECT AVG(focus_duration) FROM sessions WHERE completed = 1")
+        # Average focus duration within date range
+        cursor.execute("SELECT AVG(focus_duration) FROM sessions WHERE completed = 1 AND date BETWEEN ? AND ?", 
+                      (start_date, end_date))
         avg_focus_seconds = cursor.fetchone()[0] or 0
         insights['avg_focus_minutes'] = round(avg_focus_seconds / 60, 1)  # Round to 1 decimal place
         
-        # Session completion rate
-        cursor.execute("SELECT COUNT(*) FROM sessions")
+        # Session completion rate within date range
+        cursor.execute("SELECT COUNT(*) FROM sessions WHERE date BETWEEN ? AND ?", (start_date, end_date))
         total_sessions = cursor.fetchone()[0] or 1
-        cursor.execute("SELECT COUNT(*) FROM sessions WHERE completed = 1")
+        cursor.execute("SELECT COUNT(*) FROM sessions WHERE completed = 1 AND date BETWEEN ? AND ?", 
+                      (start_date, end_date))
         completed_sessions = cursor.fetchone()[0] or 0
         insights['completion_rate'] = (completed_sessions / total_sessions * 100) if total_sessions > 0 else 0
         
-        # Most productive day (by session count)
+        # Most productive day (by session count) within date range
         cursor.execute('''
             SELECT date, COUNT(*) as session_count 
             FROM sessions 
-            WHERE completed = 1 
+            WHERE completed = 1 AND date BETWEEN ? AND ?
             GROUP BY date 
             ORDER BY session_count DESC 
             LIMIT 1
-        ''')
+        ''', (start_date, end_date))
         result = cursor.fetchone()
         insights['most_productive_day'] = {
             'date': result[0] if result else None,
@@ -360,38 +370,54 @@ class SessionStorage:
         result = cursor.fetchone()
         insights['current_streak'] = result[0] if result else 0
         
-        # Best focus session (longest focus duration)
+        # Best focus session (longest focus duration) within date range
         cursor.execute('''
             SELECT date, focus_duration 
             FROM sessions 
-            WHERE completed = 1 
+            WHERE completed = 1 AND date BETWEEN ? AND ?
             ORDER BY focus_duration DESC 
             LIMIT 1
-        ''')
+        ''', (start_date, end_date))
         result = cursor.fetchone()
         insights['best_session'] = {
             'date': result[0] if result else None,
             'focus_minutes': (result[1] / 60) if result else 0
         }
         
-        # This month's sessions
-        current_month = datetime.now().strftime("%Y-%m")
+        # Sessions within date range
         cursor.execute('''
             SELECT COUNT(*) 
             FROM sessions 
-            WHERE strftime('%Y-%m', date) = ? AND completed = 1
-        ''', (current_month,))
+            WHERE date BETWEEN ? AND ? AND completed = 1
+        ''', (start_date, end_date))
         result = cursor.fetchone()
-        insights['sessions_this_month'] = result[0] if result else 0
+        insights['sessions_in_range'] = result[0] if result else 0
         
-        # Focus consistency (days with at least one session in last 30 days)
+        # Focus consistency (days with at least one session in date range)
         cursor.execute('''
             SELECT COUNT(DISTINCT date) 
             FROM sessions 
-            WHERE date >= date('now', '-30 days') AND completed = 1
-        ''')
+            WHERE date BETWEEN ? AND ? AND completed = 1
+        ''', (start_date, end_date))
         result = cursor.fetchone()
-        insights['focus_consistency'] = (result[0] / 30 * 100) if result else 0
+        days_with_sessions = result[0] if result else 0
+        insights['focus_consistency'] = (days_with_sessions / days * 100) if days > 0 else 0
+        
+        # Additional metrics for burnout assessment
+        # Average daily focus hours
+        if days_with_sessions > 0:
+            insights['avg_daily_focus_hours'] = insights['total_focus_hours'] / days_with_sessions
+        else:
+            insights['avg_daily_focus_hours'] = 0
+            
+        # Distraction metric (incomplete sessions)
+        cursor.execute('''
+            SELECT COUNT(*) 
+            FROM sessions 
+            WHERE date BETWEEN ? AND ? AND completed = 0
+        ''', (start_date, end_date))
+        result = cursor.fetchone()
+        insights['incomplete_sessions'] = result[0] if result else 0
         
         conn.close()
         

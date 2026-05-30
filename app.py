@@ -108,67 +108,7 @@ st.markdown("""
         line-height: 1.5;
     }
     
-    /* Hero Quote Container */
-    .hero-quote-container {
-        background: rgba(255, 255, 255, 0.7);
-        border-radius: 20px;
-        padding: 2rem;
-        margin: 2.5rem auto 3rem auto;
-        max-width: 800px;
-        border: 1px solid rgba(138, 43, 226, 0.1);
-        box-shadow: 0 10px 30px rgba(138, 43, 226, 0.05);
-        position: relative;
-    }
-    
-    .hero-quote-container::before {
-        content: '💭';
-        position: absolute;
-        top: -15px;
-        left: 50%;
-        transform: translateX(-50%);
-        background: white;
-        padding: 0 15px;
-        font-size: 1.5rem;
-    }
-    
-    .hero-quote-text {
-        font-size: 1.4rem;
-        font-style: italic;
-        color: var(--text-dark);
-        line-height: 1.6;
-        margin-bottom: 1rem;
-        position: relative;
-        padding: 0 1rem;
-    }
-    
-    .hero-quote-text::before {
-        content: '"';
-        position: absolute;
-        left: -5px;
-        top: -10px;
-        font-size: 3rem;
-        color: rgba(138, 43, 226, 0.2);
-        font-family: Georgia, serif;
-    }
-    
-    .hero-quote-text::after {
-        content: '"';
-        position: absolute;
-        right: -5px;
-        bottom: -20px;
-        font-size: 3rem;
-        color: rgba(138, 43, 226, 0.2);
-        font-family: Georgia, serif;
-    }
-    
-    .hero-quote-author {
-        text-align: center;
-        color: var(--primary-purple);
-        font-size: 1rem;
-        font-weight: 600;
-        margin-top: 1rem;
-        font-style: normal;
-    }
+
     
     /* Hero CTA Button */
     .hero-cta-button {
@@ -481,14 +421,7 @@ st.markdown("""
         .hero-section {
             padding: 2.5rem 1.5rem;
         }
-        .hero-quote-container {
-            padding: 1.5rem;
-            margin: 2rem auto 2.5rem auto;
-        }
-        .hero-quote-text {
-            font-size: 1.2rem;
-            padding: 0 0.5rem;
-        }
+
         .kpi-value {
             font-size: 2rem;
         }
@@ -513,12 +446,7 @@ st.markdown("""
         .hero-section {
             padding: 2rem 1rem;
         }
-        .hero-quote-container {
-            padding: 1.2rem;
-        }
-        .hero-quote-text {
-            font-size: 1.1rem;
-        }
+
     }
     
     /* Animation for focus */
@@ -534,126 +462,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Sidebar navigation has been removed and replaced with top navigation
+# Sidebar navigation has been removed
 # Daily target setting moved to Timer page for better context
-
-# Helper functions for Control Center
-def get_motivational_quote():
-    """Return a random motivational quote - UPDATED with modern productivity quotes"""
-    quotes = [
-        {
-            "text": "Small progress is still progress.",
-            "author": "Productivity Principle"
-        },
-        {
-            "text": "Focus on being productive, not busy.",
-            "author": "Tim Ferriss"
-        },
-        {
-            "text": "Discipline creates freedom.",
-            "author": "Productivity Wisdom"
-        },
-        {
-            "text": "Done is better than perfect.",
-            "author": "Sheryl Sandberg"
-        },
-        {
-            "text": "The key is not to prioritize what's on your schedule, but to schedule your priorities.",
-            "author": "Stephen Covey"
-        },
-        {
-            "text": "Productivity is never an accident. It is always the result of a commitment to excellence, intelligent planning, and focused effort.",
-            "author": "Paul J. Meyer"
-        },
-        {
-            "text": "Rest when you're weary. Refresh and renew yourself, your body, your mind, your spirit. Then get back to work.",
-            "author": "Ralph Marston"
-        },
-        {
-            "text": "Your mind is for having ideas, not holding them.",
-            "author": "David Allen"
-        },
-        {
-            "text": "Start where you are. Use what you have. Do what you can.",
-            "author": "Arthur Ashe"
-        },
-        {
-            "text": "The secret of getting ahead is getting started.",
-            "author": "Mark Twain"
-        },
-        {
-            "text": "Don't watch the clock; do what it does. Keep going.",
-            "author": "Sam Levenson"
-        },
-        {
-            "text": "The time to relax is when you don't have time for it.",
-            "author": "Sydney J. Harris"
-        },
-        {
-            "text": "Balance is not something you find, it's something you create.",
-            "author": "Jana Kingsford"
-        },
-        {
-            "text": "One hour of focused work is worth four hours of distracted work.",
-            "author": "Deep Work Principle"
-        },
-        {
-            "text": "The quality of your focus determines the quality of your results.",
-            "author": "Focus Philosophy"
-        },
-        {
-            "text": "Momentum builds with consistent action.",
-            "author": "Productivity Insight"
-        },
-        {
-            "text": "Clear goals lead to clear results.",
-            "author": "Goal Setting Wisdom"
-        },
-        {
-            "text": "The best time to start was yesterday. The next best time is now.",
-            "author": "Proverb"
-        },
-        {
-            "text": "Progress over perfection.",
-            "author": "Modern Mantra"
-        },
-        {
-            "text": "Your future self will thank you for starting today.",
-            "author": "Self-Motivation"
-        }
-    ]
-    return random.choice(quotes)
-
-def get_todays_focus_time():
-    """Get today's focus time from database"""
-    try:
-        today_summary = session_storage.get_today_summary()
-        if not today_summary.empty:
-            focus_hours = today_summary['total_focus_hours'].iloc[0]
-            return round(focus_hours, 1) if pd.notna(focus_hours) else 0.0
-    except Exception as e:
-        print("Error getting today's focus time: {}".format(e))
-    return 0.0
-
-def get_current_streak():
-    """Get current streak from database"""
-    try:
-        insights = session_storage.get_advanced_insights()
-        return insights.get('current_streak', 0)
-    except Exception as e:
-        print("Error getting current streak: {}".format(e))
-    return 0
-
-def get_todays_sessions():
-    """Get today's completed sessions from database"""
-    try:
-        today_summary = session_storage.get_today_summary()
-        if not today_summary.empty:
-            completed_sessions = today_summary['completed_sessions'].iloc[0]
-            return int(completed_sessions) if pd.notna(completed_sessions) else 0
-    except Exception as e:
-        print("Error getting today's sessions: {}".format(e))
-    return 0
 
 # Import pandas for data handling
 import pandas as pd
@@ -665,7 +475,7 @@ st.markdown('<h1 class="main-title">PAUSE</h1>', unsafe_allow_html=True)
 st.markdown('<p class="subtitle">Focus smart. Live well.</p>', unsafe_allow_html=True)
 
 # ============================================
-# SECTION 1: PAUSE INTRODUCTION CARD
+# SECTION 1: INTRODUCTION CARD
 # ============================================
 
 # Create introduction card using Streamlit container
@@ -679,16 +489,11 @@ with st.container():
         border: 1px solid rgba(138, 43, 226, 0.1);
         margin-bottom: 20px;
     ">
-        <h2 style="color: #4B0082; margin-top: 0;">Welcome to PAUSE</h2>
+        <h1 style="color: #4B0082; margin-top: 0; font-size: 2.5rem;">PAUSE</h1>
+        <h3 style="color: #666; margin-top: 0; font-weight: 400;">Focus smarter. Build healthier study habits.</h3>
         <p style="font-size: 1.1rem; line-height: 1.6; color: #333;">
-            PAUSE is a smart productivity and focus management system designed to help users 
-            maintain concentration, build consistent work habits, and gain insights into their 
-            productivity patterns through focused work sessions and analytics.
-        </p>
-        <p style="font-size: 1.1rem; line-height: 1.6; color: #333;">
-            Our system combines the Pomodoro technique with intelligent tracking to help you 
-            work smarter, not harder. Start your first focus session to experience improved 
-            productivity and better work-life balance.
+            PAUSE is an AI-powered productivity assistant that helps students manage focus sessions, 
+            build productive routines, track performance trends, and prevent burnout through intelligent analytics.
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -752,7 +557,7 @@ st.markdown("""
 col1, col2 = st.columns(2)
 
 with col1:
-    # Focus Timer Card
+    # Timer Card
     with st.container():
         st.markdown("""
         <div style="
@@ -763,30 +568,21 @@ with col1:
             border: 1px solid rgba(138, 43, 226, 0.1);
             transition: all 0.3s ease;
             height: 100%;
-            cursor: pointer;
             text-align: center;
-        " onclick="window.location='pages/1_Timer.py'">
+        ">
             <div style="font-size: 3rem; margin-bottom: 15px;">⏱️</div>
             <div style="font-size: 1.2rem; font-weight: 600; color: #4B0082; margin-bottom: 10px;">
-                Focus Timer
+                Timer
             </div>
             <div style="font-size: 0.9rem; color: #666; line-height: 1.4; margin-bottom: 20px;">
-                Start a focus session and manage Pomodoro cycles with customizable durations and breaks.
+                Start and manage focus sessions.
             </div>
-            <button style="
-                background: linear-gradient(135deg, #8A2BE2, #4B0082);
-                color: white;
-                border: none;
-                border-radius: 10px;
-                padding: 10px 20px;
-                font-weight: 600;
-                cursor: pointer;
-                width: 100%;
-            ">
-                Open Timer
-            </button>
         </div>
         """, unsafe_allow_html=True)
+        
+        # Timer button that actually navigates
+        if st.button("Open Timer", key="timer_quick_access", use_container_width=True):
+            st.switch_page("pages/1_Timer.py")
 
 with col2:
     # Analytics Card
@@ -800,46 +596,21 @@ with col2:
             border: 1px solid rgba(138, 43, 226, 0.1);
             transition: all 0.3s ease;
             height: 100%;
-            cursor: pointer;
             text-align: center;
-        " onclick="window.location='pages/2_Analytics.py'">
+        ">
             <div style="font-size: 3rem; margin-bottom: 15px;">📊</div>
             <div style="font-size: 1.2rem; font-weight: 600; color: #4B0082; margin-bottom: 10px;">
                 Analytics
             </div>
             <div style="font-size: 0.9rem; color: #666; line-height: 1.4; margin-bottom: 20px;">
-                Track productivity trends, performance insights, and burnout risk assessment.
+                View productivity insights and performance trends.
             </div>
-            <button style="
-                background: linear-gradient(135deg, #8A2BE2, #4B0082);
-                color: white;
-                border: none;
-                border-radius: 10px;
-                padding: 10px 20px;
-                font-weight: 600;
-                cursor: pointer;
-                width: 100%;
-            ">
-                View Analytics
-            </button>
         </div>
         """, unsafe_allow_html=True)
-
-# Add JavaScript for card click functionality
-st.markdown("""
-<script>
-    // Make cards clickable
-    document.addEventListener('DOMContentLoaded', function() {
-        const cards = document.querySelectorAll('[onclick]');
-        cards.forEach(card => {
-            card.style.cursor = 'pointer';
-            card.addEventListener('click', function() {
-                window.location.href = this.getAttribute('onclick').replace("window.location='", "").replace("'", "");
-            });
-        });
-    });
-</script>
-""", unsafe_allow_html=True)
+        
+        # Analytics button that actually navigates
+        if st.button("View Analytics", key="analytics_quick_access", use_container_width=True):
+            st.switch_page("pages/2_Analytics.py")
 
 # Minimal Footer
 st.markdown("---")
