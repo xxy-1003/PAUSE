@@ -10,8 +10,7 @@ icon = Image.open("assets/logo.png")
 st.set_page_config(
     page_title="PAUSE - Focus Smart. Live Well.",
     page_icon=icon,
-    layout="wide",
-    initial_sidebar_state="collapsed"
+    layout="wide"
 )
 
 # Custom CSS for modern purple/white theme - REDESIGNED
@@ -535,6 +534,9 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Sidebar navigation has been removed and replaced with top navigation
+# Daily target setting moved to Timer page for better context
+
 # Helper functions for Control Center
 def get_motivational_quote():
     """Return a random motivational quote - UPDATED with modern productivity quotes"""
@@ -630,7 +632,7 @@ def get_todays_focus_time():
             focus_hours = today_summary['total_focus_hours'].iloc[0]
             return round(focus_hours, 1) if pd.notna(focus_hours) else 0.0
     except Exception as e:
-        print(f"Error getting today's focus time: {e}")
+        print("Error getting today's focus time: {}".format(e))
     return 0.0
 
 def get_current_streak():
@@ -639,7 +641,18 @@ def get_current_streak():
         insights = session_storage.get_advanced_insights()
         return insights.get('current_streak', 0)
     except Exception as e:
-        print(f"Error getting current streak: {e}")
+        print("Error getting current streak: {}".format(e))
+    return 0
+
+def get_todays_sessions():
+    """Get today's completed sessions from database"""
+    try:
+        today_summary = session_storage.get_today_summary()
+        if not today_summary.empty:
+            completed_sessions = today_summary['completed_sessions'].iloc[0]
+            return int(completed_sessions) if pd.notna(completed_sessions) else 0
+    except Exception as e:
+        print("Error getting today's sessions: {}".format(e))
     return 0
 
 # Import pandas for data handling
@@ -651,172 +664,182 @@ import pandas as pd
 st.markdown('<h1 class="main-title">PAUSE</h1>', unsafe_allow_html=True)
 st.markdown('<p class="subtitle">Focus smart. Live well.</p>', unsafe_allow_html=True)
 
-# Get a random quote for the hero section
-hero_quote = get_motivational_quote()
-quote_text = hero_quote["text"]
-quote_author = hero_quote["author"]
+# ============================================
+# SECTION 1: PAUSE INTRODUCTION CARD
+# ============================================
 
-# Hero Section - FIXED with proper Streamlit structure
-st.markdown('''
-<div class="hero-section">
-    <h1 class="hero-title">Ready to Focus?</h1>
-    <p class="hero-subtitle">Build momentum. Reduce distractions. Make today meaningful.</p>
-    
-    <div class="hero-quote-container">
-        <div class="hero-quote-text">{quote_text}</div>
-        <div class="hero-quote-author">— {quote_author}</div>
+# Create introduction card using Streamlit container
+with st.container():
+    st.markdown("""
+    <div style="
+        background: white;
+        border-radius: 20px;
+        padding: 30px;
+        box-shadow: 0 10px 30px rgba(138, 43, 226, 0.08);
+        border: 1px solid rgba(138, 43, 226, 0.1);
+        margin-bottom: 20px;
+    ">
+        <h2 style="color: #4B0082; margin-top: 0;">Welcome to PAUSE</h2>
+        <p style="font-size: 1.1rem; line-height: 1.6; color: #333;">
+            PAUSE is a smart productivity and focus management system designed to help users 
+            maintain concentration, build consistent work habits, and gain insights into their 
+            productivity patterns through focused work sessions and analytics.
+        </p>
+        <p style="font-size: 1.1rem; line-height: 1.6; color: #333;">
+            Our system combines the Pomodoro technique with intelligent tracking to help you 
+            work smarter, not harder. Start your first focus session to experience improved 
+            productivity and better work-life balance.
+        </p>
     </div>
+    """, unsafe_allow_html=True)
+
+# ============================================
+# SECTION 2: PRIMARY CTA BUTTON
+# ============================================
+
+# Start Focus Session Button - Full width, prominent
+st.markdown("""
+<style>
+    .primary-cta-button {
+        width: 100%;
+        margin: 0 auto 30px auto;
+        display: block;
+    }
+    div[data-testid="stButton"] > button[kind="primary"] {
+        background: linear-gradient(135deg, #8A2BE2, #4B0082);
+        color: white;
+        border: none;
+        border-radius: 18px;
+        padding: 25px 30px;
+        font-size: 1.5rem;
+        font-weight: 700;
+        transition: all 0.3s ease;
+        box-shadow: 0 15px 35px rgba(138, 43, 226, 0.25);
+        width: 100%;
+        margin: 0 auto;
+        display: block;
+    }
+    div[data-testid="stButton"] > button[kind="primary"]:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 20px 40px rgba(138, 43, 226, 0.35);
+        background: linear-gradient(135deg, #4B0082, #8A2BE2);
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Primary CTA Button
+if st.button("🚀 Start Focus Session", key="hero_cta", type="primary", use_container_width=True):
+    st.switch_page("pages/1_Timer.py")
+
+# ============================================
+# SECTION 3: QUICK ACCESS CARDS
+# ============================================
+
+st.markdown("""
+<div style="
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #4B0082;
+    margin: 2rem 0 1rem 0;
+    padding-bottom: 10px;
+    border-bottom: 2px solid rgba(138, 43, 226, 0.1);
+">
+    🚀 Quick Access
 </div>
-'''.format(quote_text=quote_text, quote_author=quote_author), unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
-# Hero CTA Button - Streamlit compatible (NO raw HTML button)
-col_hero1, col_hero2, col_hero3 = st.columns([1, 2, 1])
-with col_hero2:
-    # Add custom CSS for the hero CTA button
-    st.markdown('''
-    <style>
-        .hero-cta-container {
-            text-align: center;
-            margin-top: 2rem;
-            margin-bottom: 1rem;
-        }
-        /* Custom styling specifically for the hero CTA button */
-        div[data-testid="stButton"] > button[kind="primary"] {
-            background: linear-gradient(135deg, var(--primary-purple), var(--dark-purple));
-            color: white;
-            border: none;
-            border-radius: 18px;
-            padding: 20px 50px;
-            font-size: 1.4rem;
-            font-weight: 700;
+# Create Quick Access cards in 2 columns
+col1, col2 = st.columns(2)
+
+with col1:
+    # Focus Timer Card
+    with st.container():
+        st.markdown("""
+        <div style="
+            background: white;
+            border-radius: 20px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(138, 43, 226, 0.08);
+            border: 1px solid rgba(138, 43, 226, 0.1);
             transition: all 0.3s ease;
-            box-shadow: 0 15px 35px rgba(138, 43, 226, 0.25);
-            width: 100%;
-            max-width: 400px;
-            margin: 0 auto;
-            display: block;
-        }
-        div[data-testid="stButton"] > button[kind="primary"]:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 20px 40px rgba(138, 43, 226, 0.35);
-            background: linear-gradient(135deg, var(--dark-purple), var(--primary-purple));
-        }
-    </style>
-    <div class="hero-cta-container">
-    ''', unsafe_allow_html=True)
-    
-    # Hero CTA Button
-    if st.button("🚀 Start Focus Session", key="hero_cta", type="primary"):
-        st.switch_page("pages/1_Timer.py")
-    
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# SECTION 1: Minimal KPI Cards (Only 2 important KPIs)
-st.markdown('<div class="section-header">📊 Today\'s Progress</div>', unsafe_allow_html=True)
-
-# Get real data from database
-today_focus_time = get_todays_focus_time()
-current_streak = get_current_streak()
-
-col_kpi1, col_kpi2 = st.columns(2)
-
-with col_kpi1:
-    message = "" if today_focus_time > 0 else "Start your first session!"
-    if message:
-        st.markdown(f'''
-        <div class="kpi-card">
-            <div class="kpi-label">Today's Focus Time</div>
-            <div class="kpi-value">{today_focus_time}h</div>
-            <div style="font-size: 0.8rem; color: var(--text-light); margin-top: 5px;">
-                {message}
+            height: 100%;
+            cursor: pointer;
+            text-align: center;
+        " onclick="window.location='pages/1_Timer.py'">
+            <div style="font-size: 3rem; margin-bottom: 15px;">⏱️</div>
+            <div style="font-size: 1.2rem; font-weight: 600; color: #4B0082; margin-bottom: 10px;">
+                Focus Timer
             </div>
+            <div style="font-size: 0.9rem; color: #666; line-height: 1.4; margin-bottom: 20px;">
+                Start a focus session and manage Pomodoro cycles with customizable durations and breaks.
+            </div>
+            <button style="
+                background: linear-gradient(135deg, #8A2BE2, #4B0082);
+                color: white;
+                border: none;
+                border-radius: 10px;
+                padding: 10px 20px;
+                font-weight: 600;
+                cursor: pointer;
+                width: 100%;
+            ">
+                Open Timer
+            </button>
         </div>
-        ''', unsafe_allow_html=True)
-    else:
-        st.markdown(f'''
-        <div class="kpi-card">
-            <div class="kpi-label">Today's Focus Time</div>
-            <div class="kpi-value">{today_focus_time}h</div>
+        """, unsafe_allow_html=True)
+
+with col2:
+    # Analytics Card
+    with st.container():
+        st.markdown("""
+        <div style="
+            background: white;
+            border-radius: 20px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(138, 43, 226, 0.08);
+            border: 1px solid rgba(138, 43, 226, 0.1);
+            transition: all 0.3s ease;
+            height: 100%;
+            cursor: pointer;
+            text-align: center;
+        " onclick="window.location='pages/2_Analytics.py'">
+            <div style="font-size: 3rem; margin-bottom: 15px;">📊</div>
+            <div style="font-size: 1.2rem; font-weight: 600; color: #4B0082; margin-bottom: 10px;">
+                Analytics
+            </div>
+            <div style="font-size: 0.9rem; color: #666; line-height: 1.4; margin-bottom: 20px;">
+                Track productivity trends, performance insights, and burnout risk assessment.
+            </div>
+            <button style="
+                background: linear-gradient(135deg, #8A2BE2, #4B0082);
+                color: white;
+                border: none;
+                border-radius: 10px;
+                padding: 10px 20px;
+                font-weight: 600;
+                cursor: pointer;
+                width: 100%;
+            ">
+                View Analytics
+            </button>
         </div>
-        ''', unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
 
-with col_kpi2:
-    streak_emoji = "🔥" if current_streak >= 7 else "⚡" if current_streak >= 3 else "📈"
-    st.markdown(f'''
-    <div class="kpi-card">
-        <div class="kpi-label">Current Streak</div>
-        <div class="kpi-value">{current_streak} days</div>
-        <div style="font-size: 0.8rem; color: var(--text-light); margin-top: 5px;">
-            {streak_emoji} Keep it going!
-        </div>
-    </div>
-    ''', unsafe_allow_html=True)
-
-# SECTION 2: Quick Access Navigation
-st.markdown('<div class="section-header">🚀 Quick Access</div>', unsafe_allow_html=True)
-
-col_nav1, col_nav2, col_nav3, col_nav4 = st.columns(4)
-
-with col_nav1:
-    st.markdown('''
-    <div class="nav-card">
-        <div class="nav-icon">⏱️</div>
-        <div class="nav-title">Focus Timer</div>
-        <div class="nav-description">Pomodoro timer with session tracking</div>
-    </div>
-    ''', unsafe_allow_html=True)
-    if st.button("Start Timer →", key="nav_timer", use_container_width=True):
-        st.switch_page("pages/1_Timer.py")
-
-with col_nav2:
-    st.markdown('''
-    <div class="nav-card">
-        <div class="nav-icon">📊</div>
-        <div class="nav-title">Analytics</div>
-        <div class="nav-description">Detailed insights & charts</div>
-    </div>
-    ''', unsafe_allow_html=True)
-    if st.button("View Analytics →", key="nav_analytics", use_container_width=True):
-        st.switch_page("pages/2_Analytics.py")
-
-with col_nav3:
-    st.markdown('''
-    <div class="nav-card">
-        <div class="nav-icon">🧘</div>
-        <div class="nav-title">Wellness</div>
-        <div class="nav-description">Mindfulness & balance tools</div>
-    </div>
-    ''', unsafe_allow_html=True)
-    if st.button("Go to Wellness →", key="nav_wellness", use_container_width=True):
-        st.switch_page("pages/3_Wellness.py")
-
-with col_nav4:
-    st.markdown('''
-    <div class="nav-card">
-        <div class="nav-icon">📝</div>
-        <div class="nav-title">Tasks</div>
-        <div class="nav-description">Coming soon</div>
-    </div>
-    ''', unsafe_allow_html=True)
-    if st.button("Explore →", key="nav_tasks", use_container_width=True, disabled=True):
-        pass
-
-# SECTION 3: Quick Actions (Optional)
-st.markdown('<div class="section-header">⚡ Quick Actions</div>', unsafe_allow_html=True)
-
-col_action1, col_action2, col_action3 = st.columns(3)
-
-with col_action1:
-    if st.button("🎯 Set Daily Goal", key="set_goal", use_container_width=True):
-        st.info("Daily goal setting feature coming soon!")
-
-with col_action2:
-    if st.button("📈 View Weekly Report", key="weekly_report", use_container_width=True):
-        st.switch_page("pages/2_Analytics.py")
-
-with col_action3:
-    if st.button("🧠 Take a Break", key="take_break", use_container_width=True):
-        st.info("Break timer feature coming soon!")
+# Add JavaScript for card click functionality
+st.markdown("""
+<script>
+    // Make cards clickable
+    document.addEventListener('DOMContentLoaded', function() {
+        const cards = document.querySelectorAll('[onclick]');
+        cards.forEach(card => {
+            card.style.cursor = 'pointer';
+            card.addEventListener('click', function() {
+                window.location.href = this.getAttribute('onclick').replace("window.location='", "").replace("'", "");
+            });
+        });
+    });
+</script>
+""", unsafe_allow_html=True)
 
 # Minimal Footer
 st.markdown("---")
@@ -826,8 +849,8 @@ with col_footer1:
     st.caption("Your modern productivity hub")
 with col_footer2:
     current_time = datetime.now().strftime("%I:%M %p")
-    st.markdown(f"**Last updated**")
-    st.caption(f"Today, {current_time}")
+    st.markdown("**Last updated**")
+    st.caption("Today, {}".format(current_time))
 
 # Run instructions in expander (minimal)
 with st.expander("ℹ️ Getting Started"):

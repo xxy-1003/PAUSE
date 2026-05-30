@@ -13,14 +13,14 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from data_storage import session_storage
 
-st.title("Analytics")
+# Import top navigation component
+from components.navigation import create_top_navigation
 
 # Page configuration for Analytics page
 st.set_page_config(
     page_title="PAUSE - Analytics",
     page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="collapsed"
+    layout="wide"
 )
 
 # Custom CSS for modern purple/white theme (same as main app)
@@ -237,28 +237,30 @@ st.markdown("""
         margin-top: 3px;
     }
     
-    .completion-badge {
-        display: inline-block;
-        padding: 2px 8px;
-        border-radius: 10px;
-        font-size: 0.7rem;
-        font-weight: 600;
-        margin-top: 5px;
-    }
-    
-    .badge-excellent {
+    /* Burnout level indicator */
+    .burnout-low {
         background-color: rgba(76, 175, 80, 0.1);
         color: #4CAF50;
+        border-left: 4px solid #4CAF50;
     }
     
-    .badge-good {
+    .burnout-medium {
         background-color: rgba(255, 193, 7, 0.1);
         color: #FF9800;
+        border-left: 4px solid #FF9800;
     }
     
-    .badge-needs-improvement {
+    .burnout-high {
         background-color: rgba(244, 67, 54, 0.1);
         color: #F44336;
+        border-left: 4px solid #F44336;
+    }
+    
+    .burnout-indicator {
+        padding: 15px;
+        border-radius: 10px;
+        margin: 10px 0;
+        font-weight: 600;
     }
     
     /* Responsive adjustments */
@@ -276,6 +278,15 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Sidebar navigation has been removed and replaced with top navigation
+# Date range selector moved to main page for better accessibility
+
+# Initialize days_to_show in session state if not exists
+if 'days_to_show' not in st.session_state:
+    st.session_state.days_to_show = 30
+
+# Date range selector will be added to main page layout
+
 # Helper functions for data analysis
 def calculate_weekly_trend(current, previous):
     """Calculate weekly trend percentage"""
@@ -286,7 +297,6 @@ def calculate_weekly_trend(current, previous):
 def format_time(minutes):
     """Format minutes into hours and minutes"""
     minutes = int(round(minutes))
-
     hours = minutes // 60
     mins = minutes % 60
     if hours > 0:
@@ -297,6 +307,98 @@ def get_day_name(date_str):
     """Get day name from date string"""
     date_obj = datetime.strptime(date_str, "%Y-%m-%d")
     return date_obj.strftime("%a")
+
+def calculate_burnout_level(daily_summary, insights):
+    """Calculate burnout level based on focus patterns with more meaningful metrics"""
+    if daily_summary.empty:
+        return "Low", 15
+    
+    # Get last 7 days data
+    last_7_days = daily_summary.head(7)
+    
+    if last_7_days.empty:
+        return "Low", 15
+    
+    # Calculate meaningful metrics
+    total_focus_hours = last_7_days['total_focus_hours'].sum()
+    avg_daily_focus = total_focus_hours / 7
+    
+    # Factor 1: Daily focus intensity (hours per day)
+    # Healthy range: 2-4 hours/day, Risk: >6 hours/day
+    if avg_daily_focus <= 2:
+        focus_factor = 20  # Low intensity
+    elif avg_daily_focus <= 4:
+        focus_factor = 40  # Healthy range
+    elif avg_daily_focus <= 6:
+        focus_factor = 60  # High intensity
+    else:
+        focus_factor = 80  # Very high intensity
+    
+    # Factor 2: Streak length with rest days consideration
+    # Healthy: 5-6 days/week with 1-2 rest days
+    current_streak = insights.get('current_streak', 0)
+    if current_streak <= 3:
+        streak_factor = 20  # Short streak, low risk
+    elif current_streak <= 7:
+        streak_factor = 40  # Moderate streak
+    elif current_streak <= 14:
+        streak_factor = 60  # Long streak, moderate risk
+    else:
+        streak_factor = 80  # Very long streak, high risk
+    
+    # Factor 3: Session length distribution
+    # Healthy: 25-45 minute sessions with breaks
+    if 'avg_focus_duration' in last_7_days.columns and not last_7_days['avg_focus_duration'].isna().all():
+        avg_session_length = last_7_days['avg_focus_duration'].mean()
+        if avg_session_length <= 25:
+            intensity_factor = 30  # Short sessions
+        elif avg_session_length <= 45:
+            intensity_factor = 40  # Optimal session length
+        elif avg_session_length <= 60:
+            intensity_factor = 60  # Long sessions
+        else:
+            intensity_factor = 80  # Very long sessions
+    else:
+        intensity_factor = 30
+    
+    # Factor 4: Rest day frequency
+    # Healthy: 1-2 rest days per week
+    days_with_sessions = len(last_7_days[last_7_days['session_count'] > 0])
+    rest_days = 7 - days_with_sessions
+    if rest_days >= 2:
+        rest_factor = 20  # Good rest frequency
+    elif rest_days == 1:
+        rest_factor = 40  # Moderate rest
+    else:
+        rest_factor = 70  # No rest days, high risk
+    
+    # Factor 5: Focus consistency (working at consistent times)
+    consistency = insights.get('focus_consistency', 0)
+    if consistency <= 50:
+        consistency_factor = 30  # Irregular schedule
+    elif consistency <= 75:
+        consistency_factor = 50  # Moderately consistent
+    else:
+        consistency_factor = 70  # Very consistent (potentially rigid)
+    
+    # Calculate burnout score (weighted average with improved weights)
+    burnout_score = (
+        focus_factor * 0.25 +      # Daily intensity
+        streak_factor * 0.20 +     # Streak length
+        intensity_factor * 0.20 +  # Session length
+        rest_factor * 0.20 +       # Rest days
+        consistency_factor * 0.15  # Schedule consistency
+    )
+    
+    # Determine level with clearer thresholds
+    if burnout_score < 35:
+        return "Low", int(burnout_score)
+    elif burnout_score < 55:
+        return "Moderate", int(burnout_score)
+    elif burnout_score < 70:
+        return "High", int(burnout_score)
+    else:
+        return "Very High", int(burnout_score)
 
 def generate_sample_data_if_empty():
     """Generate sample data if database is empty (for demo purposes)"""
@@ -341,37 +443,42 @@ def generate_sample_data_if_empty():
             st.session_state.sample_data_generated = True
             st.info("📊 Realistic sample data generated for demonstration. Complete your own focus sessions to see real analytics!")
 
+# Create top navigation (Analytics is current page)
+create_top_navigation(current_page="Analytics")
+
 # Page title
 st.markdown("<h1 class='main-title'>PAUSE</h1>", unsafe_allow_html=True)
-st.markdown("<p class='subtitle'>Analytics & Insights 📊</p>", unsafe_allow_html=True)
+st.markdown("<p class='subtitle'>Analytics Dashboard 📊</p>", unsafe_allow_html=True)
 
-# Navigation back to Dashboard
-col_nav, col_empty = st.columns([1, 3])
-with col_nav:
-    if st.button("🏠 Back to Dashboard", use_container_width=True):
-        st.switch_page("app.py")
+# Analytics Settings Section
+st.markdown("### 📊 Analytics Settings")
 
-# Fallback Navigation Section
-st.markdown("<br>")
-st.markdown("### 🔗 Quick Navigation")
-nav_col1, nav_col2, nav_col3 = st.columns(3)
-with nav_col1:
-    if st.button("⏱️ Timer", use_container_width=True):
-        st.switch_page("pages/1_Timer.py")
-with nav_col2:
-    if st.button("📊 Analytics", use_container_width=True, disabled=True):
-        pass  # Current page, so disabled
-with nav_col3:
-    if st.button("🧘 Wellness", use_container_width=True):
-        st.switch_page("pages/3_Wellness.py")
+col_set1, col_set2 = st.columns(2)
 
-st.markdown("<br>", unsafe_allow_html=True)
+with col_set1:
+    # Date range selector
+    days_to_show = st.slider(
+        "Show data for last (days):",
+        min_value=7,
+        max_value=90,
+        value=st.session_state.days_to_show,
+        help="Select how many days of data to display",
+        key="analytics_days_slider"
+    )
+    st.session_state.days_to_show = days_to_show
+
+with col_set2:
+    st.markdown("**Data Range**")
+    st.markdown(f"### {days_to_show} days")
+    st.caption(f"Showing analytics for the last {days_to_show} days")
+
+st.markdown("---")
 
 # Generate sample data if database is empty
 generate_sample_data_if_empty()
 
-# Get real data from database
-daily_summary = session_storage.get_daily_summary(days=30)
+# Get real data from database using the selected date range
+daily_summary = session_storage.get_daily_summary(days=days_to_show)
 weekly_summary = session_storage.get_weekly_summary(weeks=8)
 insights = session_storage.get_advanced_insights()
 today_summary = session_storage.get_today_summary()
@@ -385,13 +492,18 @@ if not daily_summary.empty:
     this_week_focus = this_week['total_focus_hours'].sum() if not this_week.empty else 0
     last_week_focus = last_week['total_focus_hours'].sum() if not last_week.empty else 0
     
-    this_week_avg_productivity = this_week['avg_productivity'].mean() if not this_week.empty and 'avg_productivity' in this_week.columns else 0
-    last_week_avg_productivity = last_week['avg_productivity'].mean() if not last_week.empty and 'avg_productivity' in last_week.columns else 0
+    this_week_sessions = this_week['session_count'].sum() if not this_week.empty else 0
+    last_week_sessions = last_week['session_count'].sum() if not last_week.empty else 0
+    
+    this_week_avg_session = this_week['avg_focus_duration'].mean() if not this_week.empty and 'avg_focus_duration' in this_week.columns else 0
+    last_week_avg_session = last_week['avg_focus_duration'].mean() if not last_week.empty and 'avg_focus_duration' in last_week.columns else 0
 else:
     this_week_focus = 0
     last_week_focus = 0
-    this_week_avg_productivity = 0
-    last_week_avg_productivity = 0
+    this_week_sessions = 0
+    last_week_sessions = 0
+    this_week_avg_session = 0
+    last_week_avg_session = 0
 
 # Calculate today's completion rate
 if not today_summary.empty:
@@ -403,13 +515,17 @@ else:
     completed_sessions_today = 0
     completion_rate_today = 0
 
-# Key Metrics Overview with REAL DATA
-st.markdown("### 📈 Key Performance Metrics")
+# ============================================
+# SECTION 1: KPI OVERVIEW (TOP SECTION)
+# ============================================
+st.markdown("### 📈 KPI Overview")
+
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
+    # Weekly Focus Time
     st.markdown('<div class="stat-card">', unsafe_allow_html=True)
-    st.markdown('<div class="metric-label">Weekly Focus Hours</div>', unsafe_allow_html=True)
+    st.markdown('<div class="metric-label">Weekly Focus Time</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="metric-value">{this_week_focus:.1f}h</div>', unsafe_allow_html=True)
     trend = calculate_weekly_trend(this_week_focus, last_week_focus)
     if trend >= 0:
@@ -419,35 +535,40 @@ with col1:
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col2:
+    # Average Focus Session
     st.markdown('<div class="stat-card">', unsafe_allow_html=True)
-    st.markdown('<div class="metric-label">Avg Productivity</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="metric-value">{this_week_avg_productivity:.0f}%</div>', unsafe_allow_html=True)
-    trend = calculate_weekly_trend(this_week_avg_productivity, last_week_avg_productivity)
+    st.markdown('<div class="metric-label">Average Focus Session</div>', unsafe_allow_html=True)
+    avg_session_display = format_time(this_week_avg_session)
+    st.markdown(f'<div class="metric-value">{avg_session_display}</div>', unsafe_allow_html=True)
+    trend = calculate_weekly_trend(this_week_avg_session, last_week_avg_session)
     if trend >= 0:
-        st.markdown(f'<span class="metric-change positive">+{trend}% improvement</span>', unsafe_allow_html=True)
+        st.markdown(f'<span class="metric-change positive">+{trend}% longer</span>', unsafe_allow_html=True)
     else:
-        st.markdown(f'<span class="metric-change negative">{trend}% decline</span>', unsafe_allow_html=True)
+        st.markdown(f'<span class="metric-change negative">{trend}% shorter</span>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col3:
+    # Sessions Completed
     st.markdown('<div class="stat-card">', unsafe_allow_html=True)
-    st.markdown('<div class="metric-label">Session Completion</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="metric-value">{completion_rate_today:.0f}%</div>', unsafe_allow_html=True)
-    st.markdown('<div class="metric-label">of planned sessions</div>', unsafe_allow_html=True)
-    if completion_rate_today >= 80:
-        st.markdown('<span class="metric-change positive">🎯 On track</span>', unsafe_allow_html=True)
+    st.markdown('<div class="metric-label">Sessions Completed</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-value">{this_week_sessions}</div>', unsafe_allow_html=True)
+    trend = calculate_weekly_trend(this_week_sessions, last_week_sessions)
+    if trend >= 0:
+        st.markdown(f'<span class="metric-change positive">+{trend}% more</span>', unsafe_allow_html=True)
     else:
-        st.markdown('<span class="metric-change negative">⚠️ Needs improvement</span>', unsafe_allow_html=True)
+        st.markdown(f'<span class="metric-change negative">{trend}% fewer</span>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col4:
+    # Streak
     st.markdown('<div class="stat-card">', unsafe_allow_html=True)
     st.markdown('<div class="metric-label">Focus Streak</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="metric-value">{insights["current_streak"]}</div>', unsafe_allow_html=True)
+    streak = insights.get('current_streak', 0)
+    st.markdown(f'<div class="metric-value">{streak}</div>', unsafe_allow_html=True)
     st.markdown('<div class="metric-label">days</div>', unsafe_allow_html=True)
-    if insights["current_streak"] >= 7:
+    if streak >= 7:
         st.markdown('<span class="metric-change positive">🔥 Personal best!</span>', unsafe_allow_html=True)
-    elif insights["current_streak"] >= 3:
+    elif streak >= 3:
         st.markdown('<span class="metric-change positive">📈 Keep it up!</span>', unsafe_allow_html=True)
     else:
         st.markdown('<span class="metric-change">Start a streak!</span>', unsafe_allow_html=True)
@@ -455,317 +576,81 @@ with col4:
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# Main Analytics Charts
-col_chart1, col_chart2 = st.columns(2)
+# ============================================
+# SECTION 2: PRODUCTIVITY TREND (ONE CHART ONLY)
+# ============================================
+st.markdown('<div class="chart-container">', unsafe_allow_html=True)
+st.markdown("### 📈 Weekly Focus Time Trend")
 
-with col_chart1:
-    st.markdown('<div class="chart-container">', unsafe_allow_html=True)
-    st.markdown("### 📈 Weekly Productivity Trend")
+if not daily_summary.empty and len(daily_summary) >= 7:
+    # Get last 7 days of data
+    weekly_data = daily_summary.head(7).copy()
+    weekly_data = weekly_data.sort_values('date')  # Sort by date
     
-    if not daily_summary.empty and len(daily_summary) >= 7:
-        # Get last 7 days of data
-        weekly_data = daily_summary.head(7).copy()
-        weekly_data = weekly_data.sort_values('date')  # Sort by date
-        
-        # Create day names
-        weekly_data['Day'] = weekly_data['date'].apply(get_day_name)
-        
-        # Create a beautiful dual-axis chart
-        fig = go.Figure()
-        
-        # Add productivity line
-        fig.add_trace(go.Scatter(
-            x=weekly_data['Day'],
-            y=weekly_data['avg_productivity'].fillna(0),
-            name='Productivity',
-            mode='lines+markers',
-            line=dict(color='#8A2BE2', width=4),
-            marker=dict(size=10, color='#8A2BE2'),
-            yaxis='y'
-        ))
-        
-        # Add focus hours bars
-        fig.add_trace(go.Bar(
-            x=weekly_data['Day'],
-            y=weekly_data['total_focus_hours'],
-            name='Focus Hours',
-            marker_color='rgba(138, 43, 226, 0.3)',
-            yaxis='y2'
-        ))
-        
-        # Update layout for modern look
-        fig.update_layout(
-            plot_bgcolor='white',
-            paper_bgcolor='white',
-            hovermode='x unified',
-            showlegend=True,
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=1.02,
-                xanchor="center",
-                x=0.5,
-                font=dict(size=12)
-            ),
-            yaxis=dict(
-                title=dict(text='Productivity (%)', font=dict(color='#8A2BE2', size=12)),
-                tickfont=dict(color='#8A2BE2'),
-                gridcolor='rgba(138, 43, 226, 0.1)',
-                range=[0, 100],
-                showgrid=True
-            ),
-            yaxis2=dict(
-                title=dict(text='Focus Hours', font=dict(color='rgba(138, 43, 226, 0.7)', size=12)),
-                tickfont=dict(color='rgba(138, 43, 226, 0.7)'),
-                overlaying='y',
-                side='right',
-                showgrid=False
-            ),
-            xaxis=dict(
-                gridcolor='rgba(138, 43, 226, 0.1)',
-                showgrid=True
-            ),
-            height=400,
-            margin=dict(l=20, r=50, t=40, b=40)
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-        st.caption("Track your productivity and focus hours throughout the week")
-    else:
-        st.info("📊 Not enough data yet. Complete more focus sessions to see your weekly trends!")
+    # Create day names
+    weekly_data['Day'] = weekly_data['date'].apply(get_day_name)
     
-    st.markdown('</div>', unsafe_allow_html=True)
+    # Create a clean line chart for focus hours only
+    fig = go.Figure()
+    
+    # Add focus hours line
+    fig.add_trace(go.Scatter(
+        x=weekly_data['Day'],
+        y=weekly_data['total_focus_hours'].fillna(0),
+        name='Focus Hours',
+        mode='lines+markers',
+        line=dict(color='#8A2BE2', width=4),
+        marker=dict(size=10, color='#8A2BE2'),
+        fill='tozeroy',
+        fillcolor='rgba(138, 43, 226, 0.1)'
+    ))
+    
+    # Update layout for modern look
+    fig.update_layout(
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        hovermode='x unified',
+        showlegend=True,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="center",
+            x=0.5,
+            font=dict(size=12)
+        ),
+        yaxis=dict(
+            title=dict(text='Focus Hours', font=dict(color='#8A2BE2', size=12)),
+            tickfont=dict(color='#8A2BE2'),
+            gridcolor='rgba(138, 43, 226, 0.1)',
+            showgrid=True
+        ),
+        xaxis=dict(
+            gridcolor='rgba(138, 43, 226, 0.1)',
+            showgrid=True
+        ),
+        height=400,
+        margin=dict(l=20, r=20, t=40, b=40)
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+    st.caption("Your weekly focus time trend - aim for consistent daily focus")
+else:
+    st.info("📊 Not enough data yet. Complete more focus sessions to see your weekly trends!")
 
-with col_chart2:
-    st.markdown('<div class="chart-container">', unsafe_allow_html=True)
-    st.markdown("### 📊 Daily Performance Breakdown")
-    
-    if not today_summary.empty:
-        # Get today's data
-        today_data = today_summary.iloc[0]
-        productivity_score = today_data['avg_productivity'] if pd.notna(today_data['avg_productivity']) else 0
-        
-        # Create a modern layout with two columns
-        col_chart_left, col_metrics_right = st.columns([1.2, 1])
-        
-        with col_chart_left:
-            # Create a donut chart for productivity score with categories
-            productivity_categories = {
-                'Excellent': {'min': 80, 'max': 100, 'color': '#8A2BE2'},
-                'Good': {'min': 60, 'max': 79, 'color': '#9370DB'},
-                'Needs Improvement': {'min': 0, 'max': 59, 'color': '#DDA0DD'}
-            }
-            
-            # Determine current category
-            current_category = None
-            for category, range_info in productivity_categories.items():
-                if range_info['min'] <= productivity_score <= range_info['max']:
-                    current_category = category
-                    current_color = range_info['color']
-                    break
-            
-            # Create donut chart data
-            labels = list(productivity_categories.keys())
-            values = [0, 0, 0]
-            
-            # Set the current category value
-            if current_category == 'Excellent':
-                values[0] = productivity_score
-            elif current_category == 'Good':
-                values[1] = productivity_score
-            else:
-                values[2] = productivity_score
-            
-            # Create donut chart
-            fig2 = go.Figure(data=[go.Pie(
-                labels=labels,
-                values=values,
-                hole=0.6,
-                marker=dict(
-                    colors=[productivity_categories['Excellent']['color'],
-                           productivity_categories['Good']['color'],
-                           productivity_categories['Needs Improvement']['color']],
-                    line=dict(color='white', width=2)
-                ),
-                textinfo='none',
-                hoverinfo='label+value',
-                direction='clockwise',
-                sort=False
-            )])
-            
-            # Add center text with productivity score
-            fig2.add_annotation(
-                text=f"<b>{productivity_score:.0f}%</b><br><span style='font-size:12px;color:#666'>Productivity</span>",
-                x=0.5, y=0.5,
-                font=dict(size=24, color='#4B0082'),
-                showarrow=False,
-                align='center'
-            )
-            
-            # Update layout for modern look
-            fig2.update_layout(
-                height=300,
-                plot_bgcolor='white',
-                paper_bgcolor='white',
-                showlegend=True,
-                legend=dict(
-                    orientation="v",
-                    yanchor="middle",
-                    y=0.5,
-                    xanchor="left",
-                    x=1.1,
-                    font=dict(size=11),
-                    itemwidth=30
-                ),
-                margin=dict(l=10, r=120, t=10, b=10)
-            )
-            
-            st.plotly_chart(fig2, use_container_width=True)
-            
-            # Category indicator
-            st.markdown(f"""
-            <div style="text-align: center; margin-top: -20px;">
-                <span style="display: inline-block; padding: 4px 12px; border-radius: 15px; 
-                background-color: {current_color}20; color: {current_color}; font-weight: 600; font-size: 0.9rem;">
-                {current_category}
-                </span>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col_metrics_right:
-            # Create compact KPI cards in a grid
-            
-            # Calculate completion rate
-            total_sessions = int(today_data['session_count'])
-            completed_sessions = int(today_data['completed_sessions'])
-            completion_rate = (completed_sessions / total_sessions * 100) if total_sessions > 0 else 0
-            
-            # Determine completion badge
-            if completion_rate >= 90:
-                completion_badge = "badge-excellent"
-                completion_text = "Excellent"
-            elif completion_rate >= 70:
-                completion_badge = "badge-good"
-                completion_text = "Good"
-            else:
-                completion_badge = "badge-needs-improvement"
-                completion_text = "Needs Improvement"
-            
-            # KPI 1: Sessions
-            st.markdown(f"""
-            <div class="kpi-card">
-                <div class="kpi-label">Sessions</div>
-                <div class="kpi-value">{total_sessions}</div>
-                <div class="kpi-subtext">{completed_sessions} completed</div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # KPI 2: Focus Time
-            st.markdown(f"""
-            <div class="kpi-card">
-                <div class="kpi-label">Focus Time</div>
-                <div class="kpi-value">{today_data['total_focus_hours']:.1f}h</div>
-                <div class="kpi-subtext">Today's total</div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # KPI 3: Avg Session
-            avg_session_minutes = today_data['avg_focus_duration'] if pd.notna(today_data['avg_focus_duration']) else 0
-            avg_session_display = format_time(avg_session_minutes)
-            st.markdown(f"""
-            <div class="kpi-card">
-                <div class="kpi-label">Avg Session</div>
-                <div class="kpi-value">{avg_session_display}</div>
-                <div class="kpi-subtext">Per focus session</div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # KPI 4: Completion Rate
-            st.markdown(f"""
-            <div class="kpi-card">
-                <div class="kpi-label">Completion Rate</div>
-                <div class="kpi-value">{completion_rate:.0f}%</div>
-                <div class="kpi-subtext">
-                    <span class="completion-badge {completion_badge}">{completion_text}</span>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        # Add a small summary below
-        st.markdown("---")
-        col_summary1, col_summary2 = st.columns(2)
-        
-        with col_summary1:
-            # Best session today
-            if 'best_session_today' not in locals():
-                # In a real app, you would query for today's best session
-                best_session_minutes = avg_session_minutes * 1.2 if avg_session_minutes > 0 else 0  # Simulated best session
-                st.metric(
-                    label="Best Session Today",
-                    value=format_time(best_session_minutes) if best_session_minutes > 0 else "0m",
-                    delta="Longest focus" if best_session_minutes > 0 else "No sessions"
-                )
-        
-        with col_summary2:
-            # Productivity trend (compare with yesterday if available)
-            if not daily_summary.empty and len(daily_summary) >= 2:
-                # Get yesterday's data (second row in daily_summary since it's sorted DESC)
-                yesterday_data = daily_summary.iloc[1]
-                yesterday_date = yesterday_data['date']
-                today_date = datetime.now().strftime("%Y-%m-%d")
-                
-                # Check if yesterday_data is actually yesterday (not just any previous day)
-                yesterday_obj = datetime.strptime(yesterday_date, "%Y-%m-%d")
-                today_obj = datetime.strptime(today_date, "%Y-%m-%d")
-                
-                if (today_obj - yesterday_obj).days == 1:
-                    yesterday_productivity = yesterday_data['avg_productivity'] if pd.notna(yesterday_data['avg_productivity']) else 0
-                    trend = productivity_score - yesterday_productivity
-                    trend_label = f"{trend:+.0f}% vs yesterday"
-                    st.metric(
-                        label="Productivity Trend",
-                        value=f"{productivity_score:.0f}%",
-                        delta=trend_label
-                    )
-                else:
-                    st.metric(
-                        label="Productivity Trend",
-                        value=f"{productivity_score:.0f}%",
-                        delta="No data yesterday"
-                    )
-            else:
-                st.metric(
-                    label="Productivity Trend",
-                    value=f"{productivity_score:.0f}%",
-                    delta="First day tracking"
-                )
-        
-        st.caption("Daily performance metrics updated in real-time")
-    else:
-        # No data state - show placeholder with call to action
-        st.markdown("""
-        <div style="text-align: center; padding: 40px 20px;">
-            <div style="font-size: 4rem; margin-bottom: 20px;">⏱️</div>
-            <h3 style="color: #4B0082; margin-bottom: 10px;">No Sessions Today</h3>
-            <p style="color: #666; margin-bottom: 20px;">Start your first focus session to see your daily performance metrics</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Use Streamlit button for navigation
-        col_button1, col_button2, col_button3 = st.columns([1, 2, 1])
-        with col_button2:
-            if st.button("🎯 Start a Focus Session", use_container_width=True, type="primary"):
-                st.switch_page("pages/1_Timer.py")
-    
-    st.markdown('</div>', unsafe_allow_html=True)
+st.markdown('</div>', unsafe_allow_html=True)
 
-# Advanced Insights Section
 st.markdown("<br>", unsafe_allow_html=True)
-st.markdown("### 🧠 Advanced Insights")
+
+# ============================================
+# SECTION 3: FOCUS BEHAVIOR INSIGHTS
+# ============================================
+st.markdown("### 🧠 Focus Behavior Insights")
 
 insight_col1, insight_col2, insight_col3 = st.columns(3)
 
 with insight_col1:
+    # Most Productive Day
     st.markdown('<div class="insight-card">', unsafe_allow_html=True)
     st.markdown('<span class="insight-icon">🏆</span> <span class="insight-title">Most Productive Day</span>', unsafe_allow_html=True)
     if insights['most_productive_day']['date']:
@@ -779,272 +664,180 @@ with insight_col1:
     st.markdown('</div>', unsafe_allow_html=True)
 
 with insight_col2:
+    # Focus Consistency Score
     st.markdown('<div class="insight-card">', unsafe_allow_html=True)
     st.markdown('<span class="insight-icon">📅</span> <span class="insight-title">Focus Consistency</span>', unsafe_allow_html=True)
-    st.markdown(f'<div class="insight-value">{insights["focus_consistency"]:.0f}%</div>', unsafe_allow_html=True)
+    consistency = insights.get('focus_consistency', 0)
+    st.markdown(f'<div class="insight-value">{consistency:.0f}%</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="insight-description">Days with focus sessions in last 30 days</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
 with insight_col3:
+    # Energy Pattern (simplified)
     st.markdown('<div class="insight-card">', unsafe_allow_html=True)
-    st.markdown('<span class="insight-icon">🎯</span> <span class="insight-title">Weekly Goal Progress</span>', unsafe_allow_html=True)
-    
-    # Calculate weekly goal progress (assuming 20 hours per week goal)
-    weekly_goal = 20  # hours
-    weekly_progress = min(this_week_focus / weekly_goal * 100, 100)
-    
-    st.markdown(f'<div class="insight-value">{weekly_progress:.0f}%</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="insight-description">{this_week_focus:.1f}h / {weekly_goal}h this week</div>', unsafe_allow_html=True)
-    
-    # Progress bar
-    st.progress(weekly_progress / 100)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-insight_col4, insight_col5, insight_col6 = st.columns(3)
-
-with insight_col4:
-    st.markdown('<div class="insight-card">', unsafe_allow_html=True)
-    st.markdown('<span class="insight-icon">⭐</span> <span class="insight-title">Best Focus Session</span>', unsafe_allow_html=True)
-    if insights['best_session']['date']:
-        focus_minutes = insights['best_session']['focus_minutes']
-        st.markdown(f'<div class="insight-value">{format_time(focus_minutes)}</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="insight-description">Longest session on {insights["best_session"]["date"]}</div>', unsafe_allow_html=True)
+    st.markdown('<span class="insight-icon">⚡</span> <span class="insight-title">Energy Pattern</span>', unsafe_allow_html=True)
+    if not daily_summary.empty and len(daily_summary) >= 7:
+        # Calculate average focus time by day of week
+        daily_summary['date_obj'] = pd.to_datetime(daily_summary['date'])
+        daily_summary['day_of_week'] = daily_summary['date_obj'].dt.day_name()
+        avg_by_day = daily_summary.groupby('day_of_week')['total_focus_hours'].mean()
+        
+        if not avg_by_day.empty:
+            best_day = avg_by_day.idxmax()
+            best_hours = avg_by_day.max()
+            st.markdown(f'<div class="insight-value">{best_day}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="insight-description">{best_hours:.1f}h average focus</div>', unsafe_allow_html=True)
+        else:
+            st.markdown('<div class="insight-value">--</div>', unsafe_allow_html=True)
+            st.markdown('<div class="insight-description">Not enough data</div>', unsafe_allow_html=True)
     else:
         st.markdown('<div class="insight-value">--</div>', unsafe_allow_html=True)
-        st.markdown('<div class="insight-description">Complete sessions to track your best</div>', unsafe_allow_html=True)
+        st.markdown('<div class="insight-description">Complete sessions to see pattern</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-with insight_col5:
-    st.markdown('<div class="insight-card">', unsafe_allow_html=True)
-    st.markdown('<span class="insight-icon">🔥</span> <span class="insight-title">Current Streak</span>', unsafe_allow_html=True)
-    st.markdown(f'<div class="insight-value">{insights["current_streak"]} days</div>', unsafe_allow_html=True)
-    
-    if insights['current_streak'] >= 7:
-        streak_status = "🔥 Amazing streak!"
-    elif insights['current_streak'] >= 3:
-        streak_status = "📈 Keep going!"
-    else:
-        streak_status = "Start building your streak!"
-    
-    st.markdown(f'<div class="insight-description">{streak_status}</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-with insight_col6:
-    st.markdown('<div class="insight-card">', unsafe_allow_html=True)
-    st.markdown('<span class="insight-icon">📊</span> <span class="insight-title">Total This Month</span>', unsafe_allow_html=True)
-    st.markdown(f'<div class="insight-value">{insights["sessions_this_month"]}</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="insight-description">Focus sessions completed this month</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# Monthly Progress Overview with REAL HEATMAP
 st.markdown("<br>", unsafe_allow_html=True)
-st.markdown('<div class="chart-container">', unsafe_allow_html=True)
-st.markdown("### 📅 Monthly Progress Overview")
 
-# Get current month and year
-current_year = datetime.now().year
-current_month = datetime.now().month
+# ============================================
+# SECTION 4: DAILY SNAPSHOT (LIGHTWEIGHT)
+# ============================================
+st.markdown("### 📅 Daily Snapshot")
 
-# Get heatmap data
-heatmap_data = session_storage.get_monthly_heatmap_data(current_year, current_month)
-
-if heatmap_data:
-    # Create calendar grid for the current month
-    cal = calendar.monthcalendar(current_year, current_month)
-    month_name = calendar.month_name[current_month]
+if not today_summary.empty:
+    today_data = today_summary.iloc[0]
     
-    # Create heatmap matrix
-    heatmap_matrix = []
-    week_labels = []
+    col_daily1, col_daily2 = st.columns(2)
     
-    for week_num, week in enumerate(cal, 1):
-        week_data = []
-        for day in week:
-            if day == 0:
-                week_data.append(0)  # Empty day (outside month)
-            else:
-                date_key = f"{current_year}-{current_month:02d}-{day:02d}"
-                if date_key in heatmap_data:
-                    # Use session count for heatmap value
-                    week_data.append(heatmap_data[date_key]['session_count'])
-                else:
-                    week_data.append(0)
-        heatmap_matrix.append(week_data)
-        week_labels.append(f"Week {week_num}")
-    
-    # Day labels
-    day_labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-    
-    # Create heatmap
-    fig3 = go.Figure(data=go.Heatmap(
-        z=heatmap_matrix,
-        x=day_labels,
-        y=week_labels,
-        colorscale='Purples',
-        hoverongaps=False,
-        text=heatmap_matrix,
-        texttemplate="%{text}",
-        textfont={"size": 12, "color": "white"},
-        hovertemplate='<b>%{x}</b><br>Week %{y}<br>Sessions: %{z}<extra></extra>'
-    ))
-    
-    fig3.update_layout(
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        height=400,
-        title=f"{month_name} {current_year} - Focus Sessions",
-        xaxis_title="Day of Week",
-        yaxis_title="Week of Month",
-        margin=dict(l=20, r=20, t=60, b=40)
-    )
-    
-    st.plotly_chart(fig3, use_container_width=True)
-    st.caption("Monthly focus session heatmap - darker colors indicate more sessions completed")
-else:
-    st.info("📅 No session data for this month yet. Complete focus sessions to build your monthly heatmap!")
-
-st.markdown('</div>', unsafe_allow_html=True)
-
-# Additional Statistics
-st.markdown("<br>", unsafe_allow_html=True)
-st.markdown("### 📋 Additional Statistics")
-
-stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
-
-with stat_col1:
-    st.markdown('<div class="stat-card">', unsafe_allow_html=True)
-    st.markdown('<div class="metric-label">Total Focus Time</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="metric-value">{insights["total_focus_hours"]:.1f}h</div>', unsafe_allow_html=True)
-    st.markdown('<div class="metric-label">All-time total</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-with stat_col2:
-    st.markdown('<div class="stat-card">', unsafe_allow_html=True)
-    st.markdown('<div class="metric-label">Avg Focus Duration</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="metric-value">{format_time(insights["avg_focus_minutes"])}</div>', unsafe_allow_html=True)
-    st.markdown('<div class="metric-label">Per session</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-with stat_col3:
-    st.markdown('<div class="stat-card">', unsafe_allow_html=True)
-    st.markdown('<div class="metric-label">Session Completion</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="metric-value">{insights["completion_rate"]:.0f}%</div>', unsafe_allow_html=True)
-    st.markdown('<div class="metric-label">Overall rate</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-with stat_col4:
-    st.markdown('<div class="stat-card">', unsafe_allow_html=True)
-    st.markdown('<div class="metric-label">Best Productivity</div>', unsafe_allow_html=True)
-    
-    # Get best productivity day from daily summary
-    if not daily_summary.empty and 'avg_productivity' in daily_summary.columns:
-        best_day = daily_summary[daily_summary['avg_productivity'].notna()].nlargest(1, 'avg_productivity')
-        if not best_day.empty:
-            best_score = best_day.iloc[0]['avg_productivity']
-            st.markdown(f'<div class="metric-value">{best_score:.0f}%</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="metric-label">Highest daily avg</div>', unsafe_allow_html=True)
-        else:
-            st.markdown(f'<div class="metric-value">--</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="metric-label">No data yet</div>', unsafe_allow_html=True)
-    else:
-        st.markdown(f'<div class="metric-value">--</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="metric-label">No data yet</div>', unsafe_allow_html=True)
-    
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# Data Export Section
-st.markdown("<br>", unsafe_allow_html=True)
-st.markdown('<div class="stat-card">', unsafe_allow_html=True)
-st.markdown("### 📥 Export Analytics")
-
-col_export1, col_export2, col_export3 = st.columns(3)
-
-with col_export1:
-    if st.button("📄 Export Weekly Report", use_container_width=True):
-        # Export weekly data to CSV
-        export_file = session_storage.export_to_csv("pause_weekly_report.csv")
-        st.success(f"Weekly report exported to {export_file}")
+    with col_daily1:
+        # Simple KPI cards for today
+        st.markdown('<div class="stat-card">', unsafe_allow_html=True)
+        st.markdown('<div class="metric-label">Today\'s Focus Time</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-value">{today_data["total_focus_hours"]:.1f}h</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
         
-with col_export2:
-    if st.button("📊 Export Raw Data", use_container_width=True):
-        # Export all sessions to CSV
-        sessions_df = session_storage.get_sessions()
-        if not sessions_df.empty:
-            sessions_df.to_csv("pause_raw_data.csv", index=False)
-            st.info("CSV file with raw analytics data prepared: pause_raw_data.csv")
+        st.markdown('<div class="stat-card">', unsafe_allow_html=True)
+        st.markdown('<div class="metric-label">Sessions Completed</div>', unsafe_allow_html=True)
+        completed = int(today_data['completed_sessions'])
+        total = int(today_data['session_count'])
+        st.markdown(f'<div class="metric-value">{completed}/{total}</div>', unsafe_allow_html=True)
+        completion_rate = (completed / total * 100) if total > 0 else 0
+        if completion_rate >= 80:
+            st.markdown('<span class="metric-change positive">🎯 On track</span>', unsafe_allow_html=True)
         else:
-            st.warning("No data to export yet")
+            st.markdown('<span class="metric-change negative">⚠️ Needs improvement</span>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    with col_daily2:
+        # Simple donut chart for focus vs break ratio
+        st.markdown('<div class="stat-card">', unsafe_allow_html=True)
+        st.markdown('<div class="metric-label">Focus vs Break Ratio</div>', unsafe_allow_html=True)
+        
+        focus_hours = today_data['total_focus_hours']
+        break_hours = today_data['total_break_hours'] if 'total_break_hours' in today_data else 0
+        
+        if focus_hours + break_hours > 0:
+            # Create simple donut chart
+            labels = ['Focus', 'Break']
+            values = [focus_hours, break_hours]
+            colors = ['#8A2BE2', '#9370DB']
             
-with col_export3:
-    if st.button("🔄 Refresh Data", use_container_width=True):
-        st.rerun()
+            fig_donut = go.Figure(data=[go.Pie(
+                labels=labels,
+                values=values,
+                hole=0.6,
+                marker=dict(colors=colors),
+                textinfo='label+percent',
+                hoverinfo='label+value',
+                direction='clockwise',
+                sort=False
+            )])
+            
+            fig_donut.update_layout(
+                height=250,
+                plot_bgcolor='white',
+                paper_bgcolor='white',
+                showlegend=False,
+                margin=dict(l=10, r=10, t=10, b=10)
+            )
+            
+            st.plotly_chart(fig_donut, use_container_width=True)
+        else:
+            st.info("No sessions completed today")
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+else:
+    st.info("📅 No sessions completed today. Start your first focus session to see daily metrics!")
 
-st.markdown('</div>', unsafe_allow_html=True)
+st.markdown("<br>", unsafe_allow_html=True)
 
-# Data Management
-with st.expander("🗃️ Data Management"):
-    st.markdown("### Manage Your Session Data")
-    
-    # Show current session count
-    session_count = session_storage.get_session_count()
-    st.metric("Total Sessions in Database", session_count)
-    
-    col_manage1, col_manage2, col_manage3 = st.columns(3)
-    
-    with col_manage1:
-        if st.button("🗑️ Clear Old Data (1+ year)", use_container_width=True):
-            deleted = session_storage.clear_old_data(days_to_keep=365)
-            st.success(f"Cleared {deleted} sessions older than 1 year")
-            st.rerun()
+# ============================================
+# SECTION 5: BURNOUT LEVEL (NEW FEATURE)
+# ============================================
+st.markdown("### 🔥 Burnout Level Assessment")
 
-        if st.button("🗑️ Clear All Data", use_container_width=True):
-            conn = sqlite3.connect(session_storage.db_path)
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM sessions")
-            conn.commit()
-            conn.close()
+burnout_level, burnout_score = calculate_burnout_level(daily_summary, insights)
 
-            st.success("All session data cleared!")
-            st.rerun()
+col_burnout1, col_burnout2 = st.columns([1, 2])
+
+with col_burnout1:
+    st.markdown('<div class="stat-card">', unsafe_allow_html=True)
+    st.markdown('<div class="metric-label">Burnout Risk</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-value">{burnout_level}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-label">Score: {burnout_score}/100</div>', unsafe_allow_html=True)
     
-    with col_manage2:
-        if st.button("🔧 Fix Corrupted Data", use_container_width=True, type="secondary"):
-            deleted = session_storage.clear_corrupted_data()
-            if deleted > 0:
-                st.warning(f"Removed {deleted} corrupted sessions (impossible durations)")
-            else:
-                st.info("No corrupted data found")
-            st.rerun()
+    # Color-coded indicator
+    if burnout_level == "Low":
+        st.markdown('<div class="burnout-indicator burnout-low">✅ Healthy balance</div>', unsafe_allow_html=True)
+    elif burnout_level == "Moderate":
+        st.markdown('<div class="burnout-indicator burnout-medium">⚠️ Monitor workload</div>', unsafe_allow_html=True)
+    elif burnout_level == "High":
+        st.markdown('<div class="burnout-indicator burnout-high">🚨 Take a break</div>', unsafe_allow_html=True)
+    else:  # Very High
+        st.markdown('<div class="burnout-indicator burnout-high">🔥 Critical - Rest needed</div>', unsafe_allow_html=True)
     
-    with col_manage3:
-        if st.button("📊 View Raw Data", use_container_width=True):
-            sessions_df = session_storage.get_sessions()
-            if not sessions_df.empty:
-                st.dataframe(sessions_df.head(20))
-                st.caption(f"Showing {len(sessions_df)} total sessions")
-                
-                # Show data quality metrics
-                st.markdown("#### Data Quality Check")
-                col_quality1, col_quality2, col_quality3 = st.columns(3)
-                
-                with col_quality1:
-                    # Check for impossible durations (> 24 hours)
-                    impossible = sessions_df[sessions_df['focus_duration'] > 86400]
-                    st.metric("Impossible Durations", len(impossible))
-                
-                with col_quality2:
-                    # Check for zero/negative durations
-                    invalid = sessions_df[sessions_df['focus_duration'] <= 0]
-                    st.metric("Invalid Durations", len(invalid))
-                
-                with col_quality3:
-                    # Check average duration
-                    avg_duration = sessions_df['focus_duration'].mean() / 60 if not sessions_df.empty else 0
-                    st.metric("Avg Duration", f"{avg_duration:.1f} min")
-            else:
-                st.info("No session data available yet")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+with col_burnout2:
+    st.markdown('<div class="stat-card">', unsafe_allow_html=True)
+    st.markdown('<div class="metric-label">Factors Considered</div>', unsafe_allow_html=True)
+    
+    factors = [
+        "Daily focus intensity (hours per day)",
+        "Current streak length & rest days", 
+        "Average session duration",
+        "Rest day frequency (per week)",
+        "Schedule consistency"
+    ]
+    
+    for factor in factors:
+        st.markdown(f'<div style="margin-bottom: 8px;">• {factor}</div>', unsafe_allow_html=True)
+    
+    st.markdown("<br>")
+    
+    # Recommendations based on burnout level
+    if burnout_level == "Low":
+        st.markdown("**Recommendations:**")
+        st.markdown("- Maintain your current healthy balance")
+        st.markdown("- Continue regular breaks between sessions")
+        st.markdown("- Keep tracking your progress")
+    elif burnout_level == "Moderate":
+        st.markdown("**Recommendations:**")
+        st.markdown("- Consider taking more frequent breaks")
+        st.markdown("- Schedule at least 1 rest day per week")
+        st.markdown("- Monitor your energy levels daily")
+    elif burnout_level == "High":
+        st.markdown("**Recommendations:**")
+        st.markdown("- Take a complete day off from focused work")
+        st.markdown("- Engage in non-work activities")
+        st.markdown("- Reduce daily focus targets by 25%")
+    else:  # Very High
+        st.markdown("**Recommendations:**")
+        st.markdown("- **Take 2-3 days completely off work**")
+        st.markdown("- Seek support if feeling overwhelmed")
+        st.markdown("- Reevaluate your work-life balance")
+        st.markdown("- Consider professional help if needed")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # Footer
 st.markdown("---")
-st.markdown("**PAUSE Analytics** • Real data-driven insights for better focus • 📊")
-st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+st.markdown("**PAUSE Analytics Dashboard** • Data-driven insights for better focus • 📊")
