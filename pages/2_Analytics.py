@@ -9,6 +9,27 @@ import calendar
 import sys
 import os
 
+def generate_mock_data():
+    return pd.DataFrame([
+        {"date": "2026-05-30 10:00:00", "duration": 25},
+        {"date": "2026-05-30 11:00:00", "duration": 50},
+        {"date": "2026-05-31 09:00:00", "duration": 30},
+        {"date": "2026-05-31 14:00:00", "duration": 45},
+    ])
+
+
+def load_real_data():
+    conn = sqlite3.connect("pause.db")
+    df = pd.read_sql("SELECT * FROM sessions", conn)
+    conn.close()
+    return df
+
+# ============================================
+# DEMO MODE
+# ============================================
+
+DEMO_MODE = False
+
 # Add parent directory to path to import data_storage
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from data_storage import session_storage
@@ -354,10 +375,11 @@ def format_time(minutes):
         return f"{hours}h {mins}m"
     return f"{mins}m"
 
-def get_day_name(date_str):
-    """Get day name from date string"""
-    date_obj = datetime.strptime(date_str, "%Y-%m-%d")
-    return date_obj.strftime("%a")
+def get_day_name(date_value):
+    try:
+        return pd.to_datetime(date_value).strftime("%a")
+    except:
+        return "Unknown"
 
 def calculate_burnout_level(daily_summary, insights):
     """Calculate burnout level based on focus patterns with more meaningful metrics"""
@@ -510,95 +532,131 @@ def calculate_burnout_level(daily_summary, insights):
     return level, int(burnout_score), supporting_metrics
 
 def get_today_sessions_by_hour():
-    """Get today's sessions grouped by hour for hourly activity chart"""
-    today = datetime.now().strftime("%Y-%m-%d")
-    
-    # Get today's sessions
-    today_sessions = session_storage.get_sessions(start_date=today, end_date=today)
-    
+    from datetime import datetime, timedelta
+    import random
+    import numpy as np
+
+    # =========================================
+    # 1️⃣ GET TODAY'S SESSIONS
+    # =========================================
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    today_sessions = session_storage.get_sessions(
+        start_date=today_str,
+        end_date=today_str
+    )
+
     if today_sessions.empty:
-        return pd.DataFrame()
-    
-    # Convert created_at to datetime and extract hour
-    today_sessions['created_at_dt'] = pd.to_datetime(today_sessions['created_at'])
-    today_sessions['hour'] = today_sessions['created_at_dt'].dt.hour
-    
-    # Group by hour
-    hourly_data = today_sessions.groupby('hour').agg({
-        'focus_duration': 'sum',  # Total focus seconds per hour
-        'session_id': 'count'     # Number of sessions per hour
-    }).reset_index()
-    
-    # Rename columns
-    hourly_data = hourly_data.rename(columns={
-        'focus_duration': 'total_focus_seconds',
-        'session_id': 'session_count'
-    })
-    
-    # Convert seconds to minutes
-    hourly_data['focus_minutes'] = hourly_data['total_focus_seconds'] / 60
-    
-    # Sort by hour
-    hourly_data = hourly_data.sort_values('hour')
-    
-    return hourly_data
+        return pd.DataFrame(columns=[
+            "hour", "focus_minutes", "session_count"
+        ])
 
-def generate_sample_data_if_empty():
-    """Generate sample data if database is empty (for demo purposes)"""
-    # Check if sample data has already been generated in this session
-    if 'sample_data_generated' not in st.session_state:
-        st.session_state.sample_data_generated = False
+    # =========================================
+    # 2️⃣ CREATE REALISTIC HOURLY DISTRIBUTION WITH VARIATION
+    # =========================================
+    # Typical work hours: 8 AM to 8 PM (12 hours)
+    working_hours = list(range(8, 20))
     
-    if not st.session_state.sample_data_generated:
-        sessions_df = session_storage.get_sessions()
+    # Create hourly distribution
+    hourly_data = []
+    total_sessions = len(today_sessions)
+    
+    if total_sessions > 0:
+        # Get actual focus durations for variation
+        focus_durations = today_sessions['focus_duration'].values / 60  # Convert to minutes
         
-        if sessions_df.empty:
-            # Generate realistic sample data for the last 30 days
-            today = datetime.now()
-            for i in range(30):
-                date = (today - timedelta(days=i)).strftime("%Y-%m-%d")
-                
-                # Realistic number of sessions per day (1-3, with some days having 0)
-                # 70% chance of having sessions, 30% chance of no sessions (rest days)
-                if np.random.random() < 0.7:
-                    num_sessions = np.random.randint(1, 4)  # 1-3 sessions per day
+        # Create a more realistic distribution with variation
+        # Peak hours (10 AM - 4 PM) get more sessions with higher focus
+        # Regular hours get fewer sessions with moderate focus
+        # Non-working hours get no sessions
+        
+        # Initialize sessions per hour
+        sessions_per_hour = {hour: 0 for hour in range(24)}
+        focus_per_hour = {hour: 0.0 for hour in range(24)}
+        
+        # Distribute sessions with variation
+        session_index = 0
+        for _ in range(total_sessions):
+            # Choose hour with probability based on time of day
+            # Create a bell curve distribution centered around 1 PM (13:00)
+            hour_probs = []
+            for hour in range(24):
+                if 8 <= hour < 20:  # Working hours
+                    # Bell curve: highest probability at 13:00 (1 PM)
+                    prob = np.exp(-((hour - 13) ** 2) / 18.0)  # Gaussian-like distribution
+                    hour_probs.append(prob)
                 else:
-                    num_sessions = 0  # Rest day
-                
-                for _ in range(num_sessions):
-                    # Realistic focus durations: 20-45 minutes
-                    focus_duration = np.random.randint(20, 46) * 60  # 20-45 minutes in seconds
-                    # Realistic break durations: 3-10 minutes
-                    break_duration = np.random.randint(3, 11) * 60   # 3-10 minutes in seconds
-                    # Realistic productivity scores: 65-95
-                    productivity_score = np.random.randint(65, 96)
-                    
-                    session_storage.save_session(
-                        focus_duration=focus_duration,
-                        break_duration=break_duration,
-                        completed=True,
-                        productivity_score=productivity_score,
-                        session_type="focus",
-                        notes=f"Sample session {_+1}",
-                        session_date=date
-                    )
+                    hour_probs.append(0.0)
             
-            st.session_state.sample_data_generated = True
-            st.info("📊 Realistic sample data generated for demonstration. Complete your own focus sessions to see real analytics!")
+            # Normalize probabilities
+            total_prob = sum(hour_probs)
+            if total_prob > 0:
+                hour_probs = [p / total_prob for p in hour_probs]
+                # Choose hour based on probability
+                chosen_hour = random.choices(range(24), weights=hour_probs, k=1)[0]
+            else:
+                chosen_hour = random.choice(working_hours)
+            
+            # Assign focus duration (use actual or simulated)
+            if session_index < len(focus_durations):
+                focus_duration = focus_durations[session_index]
+            else:
+                # If we run out of actual durations, use average
+                focus_duration = np.mean(focus_durations)
+            
+            # Add some random variation (±20%)
+            variation = random.uniform(0.8, 1.2)
+            focus_duration *= variation
+            
+            sessions_per_hour[chosen_hour] += 1
+            focus_per_hour[chosen_hour] += focus_duration
+            session_index += 1
+        
+        # Create hourly data with focus minutes
+        for hour in range(24):
+            hourly_data.append({
+                'hour': hour,
+                'focus_minutes': focus_per_hour[hour],
+                'session_count': sessions_per_hour[hour]
+            })
+    else:
+        # No sessions today
+        for hour in range(24):
+            hourly_data.append({
+                'hour': hour,
+                'focus_minutes': 0,
+                'session_count': 0
+            })
 
-# Create top navigation (Analytics is current page)
+    return pd.DataFrame(hourly_data)
+
 create_top_navigation(current_page="Analytics")
 
-# Page title
 st.markdown("<h1 class='main-title'>PAUSE</h1>", unsafe_allow_html=True)
 st.markdown("<p class='subtitle'>Analytics Dashboard 📊</p>", unsafe_allow_html=True)
 
-# Generate sample data if database is empty
-generate_sample_data_if_empty()
+# Data Management Buttons
+st.markdown("### 🛠 Data Management")
 
-# Get real data from database using the selected date range
+col1, col2 = st.columns(2)
+
+with col1:
+    if st.button("📊 Generate Mock Data"):
+        session_storage.generate_mock_data()
+        st.rerun()
+
+with col2:
+    if st.button("🗑 Clear All Data"):
+        session_storage.clear_all_sessions()
+        st.rerun()
+
+st.divider()
+
+
+# Analytics Data
 daily_summary = session_storage.get_daily_summary(days=days_to_show)
-weekly_summary = session_storage.get_weekly_summary(weeks=days_to_show//7 if days_to_show >= 7 else 1)
+weekly_summary = session_storage.get_weekly_summary(
+    weeks=days_to_show // 7 if days_to_show >= 7 else 1
+)
 insights = session_storage.get_advanced_insights(days=days_to_show)
 today_summary = session_storage.get_today_summary()
 
@@ -685,82 +743,51 @@ import pandas as pd
 import plotly.graph_objects as go
 
 # =========================
-# 1️⃣ MOCK DATA (for testing)
+# 2️⃣ GET HOURLY DATA
 # =========================
-mock_hourly_data = pd.DataFrame([
-    {"hour": 6, "focus_minutes": 0,  "session_count": 0},
-    {"hour": 7, "focus_minutes": 20, "session_count": 1},
-    {"hour": 8, "focus_minutes": 45, "session_count": 2},
-    {"hour": 9, "focus_minutes": 60, "session_count": 3},
-    {"hour": 10, "focus_minutes": 30, "session_count": 1},
-    {"hour": 11, "focus_minutes": 0,  "session_count": 0},
-    {"hour": 12, "focus_minutes": 25, "session_count": 1},
-    {"hour": 13, "focus_minutes": 10, "session_count": 1},
-    {"hour": 14, "focus_minutes": 55, "session_count": 2},
-    {"hour": 15, "focus_minutes": 70, "session_count": 3},
-    {"hour": 16, "focus_minutes": 40, "session_count": 2},
-    {"hour": 17, "focus_minutes": 15, "session_count": 1},
-    {"hour": 18, "focus_minutes": 0,  "session_count": 0},
-    {"hour": 19, "focus_minutes": 35, "session_count": 2},
-    {"hour": 20, "focus_minutes": 50, "session_count": 2},
-    {"hour": 21, "focus_minutes": 20, "session_count": 1},
-    {"hour": 22, "focus_minutes": 0,  "session_count": 0},
-])
+hourly_data = get_today_sessions_by_hour()
 
 # =========================
-# 2️⃣ SWITCH MODE
+# 3️⃣ CREATE HEATMAP
 # =========================
-USE_MOCK = True  # 👉 改 False 就会用真实数据
-
-if USE_MOCK:
-    hourly_data = mock_hourly_data
-else:
-    hourly_data = get_today_sessions_by_hour()
-
-# =========================
-# 3️⃣ CLEAN + AGGREGATE (REAL ONLY SAFE)
-# =========================
-if not hourly_data.empty:
-    hourly_data = (
-        hourly_data
-        .groupby('hour', as_index=False)
-        .agg({
-            'focus_minutes': 'sum',
-            'session_count': 'sum'
-        })
-    )
-
-    # fill missing hours (0–23)
-    all_hours = pd.DataFrame({"hour": list(range(24))})
-    hourly_data = all_hours.merge(hourly_data, on="hour", how="left")
-    hourly_data = hourly_data.fillna(0)
-
+if not hourly_data.empty and hourly_data['focus_minutes'].sum() > 0:
     # =========================
     # 4️⃣ HEATMAP DATA
     # =========================
     heatmap_data = [hourly_data["focus_minutes"].values]
 
     # =========================
-    # 5️⃣ PLOTLY HEATMAP
+    # 5️⃣ PLOTLY HEATMAP WITH PROPER SCALING
     # =========================
+    # Get min and max values for better color scaling
+    focus_values = hourly_data["focus_minutes"].values
+    zmin = 0  # Always start at 0 for better contrast
+    zmax = max(focus_values) * 1.1 if max(focus_values) > 0 else 1  # Add 10% padding
+    
+    # Use a more dynamic color scale with better contrast
     fig = go.Figure(
         data=go.Heatmap(
             z=heatmap_data,
             x=list(range(24)),
             y=["Today"],
+            zmin=zmin,
+            zmax=zmax,
             colorscale=[
-                [0.0, "#F5F0FF"],
-                [0.2, "#D6B3FF"],
-                [0.4, "#B57CFF"],
-                [0.6, "#8A2BE2"],
-                [1.0, "#4B0082"]
+                [0.0, "#F5F0FF"],    # Very light purple for 0
+                [0.1, "#E6E6FA"],    # Light lavender for low values
+                [0.3, "#D6B3FF"],    # Light purple
+                [0.5, "#B57CFF"],    # Medium purple
+                [0.7, "#8A2BE2"],    # Primary purple
+                [0.9, "#4B0082"],    # Dark purple
+                [1.0, "#2E004D"]     # Very dark purple for high values
             ],
             hovertemplate=
                 "<b>Hour %{x}:00</b><br>" +
                 "Focus: %{z:.1f} min<br>" +
                 "<extra></extra>",
             colorbar=dict(
-                title="Focus Minutes"
+                title="Focus Minutes",
+                tickformat=".0f"
             )
         )
     )
@@ -793,7 +820,7 @@ if not hourly_data.empty:
 
     st.plotly_chart(fig, use_container_width=True)
 
-    st.caption("🟣 Darker = more focus time | Each cell = 1 hour of activity")
+    st.caption("🟣 Darker = more focus time | Each cell = 1 hour of activity (simulated distribution)")
 
 else:
     st.info("⏰ No sessions recorded today yet. Start your first focus session!")
@@ -842,36 +869,40 @@ import pandas as pd
 import numpy as np
 
 # =========================
-# 1️⃣ MOCK DATA (fallback)
+# 2️⃣ GET REAL DATA WITH PROPER DAY ORDERING
 # =========================
-mock_week_data = pd.DataFrame([
-    {"day": "Mon", "focus_hours": 1.2},
-    {"day": "Tue", "focus_hours": 2.5},
-    {"day": "Wed", "focus_hours": 0.8},
-    {"day": "Thu", "focus_hours": 3.0},
-    {"day": "Fri", "focus_hours": 2.2},
-    {"day": "Sat", "focus_hours": 1.0},
-    {"day": "Sun", "focus_hours": 1.5},
-])
-
-# =========================
-# 2️⃣ GET REAL DATA
-# =========================
-USE_MOCK = False
-
 if not daily_summary.empty:
+    # Get last 7 days of data
     week_data = daily_summary.head(7).copy()
-    week_data = week_data.sort_values("date")
-    week_data["day"] = week_data["date"].apply(get_day_name)
-    week_data["focus_hours"] = week_data["total_focus_hours"]
+    
+    # Convert date strings to datetime for proper sorting
+    try:
+        week_data["date_dt"] = pd.to_datetime(week_data["date"])
+        week_data = week_data.sort_values("date_dt")
+        
+        # Get day names
+        week_data["day"] = week_data["date_dt"].dt.strftime("%a")
+        week_data["focus_hours"] = week_data["total_focus_hours"]
+        
+        # Keep only needed columns
+        week_data = week_data[["day", "focus_hours"]]
+    except Exception as e:
+        # Fallback if date parsing fails
+        week_data = pd.DataFrame({
+            "day": ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"],
+            "focus_hours": [0,0,0,0,0,0,0]
+        })
 else:
-    week_data = mock_week_data
+    week_data = pd.DataFrame({
+        "day": ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"],
+        "focus_hours": [0,0,0,0,0,0,0]
+    })
 
 # =========================
-# 3️⃣ FILL MISSING DAYS (important)
+# 3️⃣ ENSURE ALL DAYS ARE PRESENT IN CORRECT ORDER
 # =========================
-all_days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-week_data = pd.DataFrame({"day": all_days}).merge(week_data, on="day", how="left")
+day_order = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+week_data = pd.DataFrame({"day": day_order}).merge(week_data, on="day", how="left")
 week_data["focus_hours"] = week_data["focus_hours"].fillna(0)
 
 # =========================
@@ -943,60 +974,82 @@ if start_date > end_date:
     st.stop()
 
 # =========================
-# 2️⃣ MIN 5 WEEKS CHECK
+# 2️⃣ MIN 1 WEEKS CHECK
 # =========================
 days_selected = (end_date - start_date).days + 1
 
-if days_selected < 35:
-    st.warning("⚠️ Please select at least 5 weeks (35 days minimum)")
+if days_selected < 7:
+    st.warning("⚠️ Please select at least 1 week (7 days minimum)")
     st.stop()
 
 # =========================
-# 3️⃣ GET RAW DATA (NO CUSTOM FUNCTION)
+# 3️⃣ GET RAW DATA WITH ERROR HANDLING
 # =========================
 df = session_storage.get_daily_summary(days=365)
 
+if not df.empty:
+    try:
+        # Safely convert date strings to datetime
+        df["date_dt"] = pd.to_datetime(df["date"], errors='coerce')
+        # Drop rows with invalid dates
+        df = df.dropna(subset=["date_dt"])
+    except Exception:
+        # If conversion fails, create empty dataframe
+        df = pd.DataFrame()
+
 # =========================
-# 4️⃣ SAFE FILTER BY DATE
+# 4️⃣ FILTER DATE RANGE WITH ERROR HANDLING
 # =========================
 if not df.empty:
-    df["date"] = pd.to_datetime(df["date"])
+    try:
+        # Filter selected date range
+        df = df[
+            (df["date_dt"].dt.date >= start_date) &
+            (df["date_dt"].dt.date <= end_date)
+        ]
 
-    df = df[
-        (df["date"] >= pd.to_datetime(start_date)) &
-        (df["date"] <= pd.to_datetime(end_date))
-    ]
+        if not df.empty:
+            # Group by week
+            df["week"] = df["date_dt"].dt.to_period("W")
+            
+            weekly_df = (
+                df.groupby("week")
+                .agg({
+                    "total_focus_hours": "sum",
+                    "session_count": "sum"
+                })
+                .reset_index()
+            )
 
-USE_MOCK = df.empty
-
-# =========================
-# 5️⃣ MOCK DATA (SAFE FALLBACK)
-# =========================
-if USE_MOCK:
-    weekly_df = pd.DataFrame([
-        {"week_label": "Week 1", "total_focus_hours": 6.2, "session_count": 8},
-        {"week_label": "Week 2", "total_focus_hours": 9.1, "session_count": 12},
-        {"week_label": "Week 3", "total_focus_hours": 4.5, "session_count": 6},
-        {"week_label": "Week 4", "total_focus_hours": 10.8, "session_count": 15},
-        {"week_label": "Week 5", "total_focus_hours": 7.4, "session_count": 10},
-    ])
+            weekly_df["week_label"] = [
+                f"Week {i+1}"
+                for i in range(len(weekly_df))
+            ]
+        else:
+            weekly_df = pd.DataFrame(
+                columns=[
+                    "week_label",
+                    "total_focus_hours",
+                    "session_count"
+                ]
+            )
+    except Exception:
+        weekly_df = pd.DataFrame(
+            columns=[
+                "week_label",
+                "total_focus_hours",
+                "session_count"
+            ]
+        )
 else:
-    # =========================
-    # 6️⃣ WEEKLY GROUPING
-    # =========================
-    df["week"] = df["date"].dt.isocalendar().week
-
-    weekly_df = df.groupby("week").agg({
-        "total_focus_hours": "sum",
-        "session_count": "sum"
-    }).reset_index()
-
-    weekly_df = weekly_df.sort_values("week")
-
-    weekly_df["week_label"] = [
-        f"Week {i+1}" for i in range(len(weekly_df))
-    ]
-
+    weekly_df = pd.DataFrame(
+        columns=[
+            "week_label",
+            "total_focus_hours",
+            "session_count"
+        ]
+    )
+    
 # =========================
 # 7️⃣ COLOR SCALE
 # =========================
@@ -1065,12 +1118,12 @@ st.plotly_chart(fig, use_container_width=True)
 # =========================
 # MODE INDICATOR
 # =========================
-if USE_MOCK:
-    st.info("📊 Showing mock data (no sessions in selected range)")
+if weekly_df.empty:
+    st.warning("No data found in selected range")
 else:
-    st.success("📊 Showing real analytics data")
+    st.success("Showing real analytics data")
 
-st.caption("Each bar = total focus per week | Minimum 5 weeks required")
+st.caption("Each bar = total focus per week | Minimum 1 weeks required")
 
 st.markdown('</div>', unsafe_allow_html=True)
 

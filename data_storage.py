@@ -116,15 +116,16 @@ class SessionStorage:
         """
         conn = sqlite3.connect(self.db_path)
         
+        # Use normalized date for filtering
         query = "SELECT * FROM sessions WHERE 1=1"
         params = []
         
         if start_date:
-            query += " AND date >= ?"
+            query += " AND (CASE WHEN instr(date, ' ') > 0 THEN substr(date, 1, 10) ELSE date END) >= ?"
             params.append(start_date)
         
         if end_date:
-            query += " AND date <= ?"
+            query += " AND (CASE WHEN instr(date, ' ') > 0 THEN substr(date, 1, 10) ELSE date END) <= ?"
             params.append(end_date)
         
         query += " ORDER BY date DESC, created_at DESC"
@@ -149,22 +150,33 @@ class SessionStorage:
         
         conn = sqlite3.connect(self.db_path)
         
+        # Normalize date format by extracting date part only (handle both YYYY-MM-DD and YYYY-MM-DD HH:MM:SS)
         query = '''
             SELECT 
-                date,
+                CASE 
+                    WHEN instr(date, ' ') > 0 THEN substr(date, 1, 10)
+                    ELSE date
+                END as normalized_date,
                 COUNT(*) as session_count,
                 SUM(focus_duration) as total_focus_seconds,
                 SUM(break_duration) as total_break_seconds,
                 AVG(productivity_score) as avg_productivity,
                 SUM(CASE WHEN completed = 1 THEN 1 ELSE 0 END) as completed_sessions
             FROM sessions
-            WHERE date BETWEEN ? AND ?
-            GROUP BY date
-            ORDER BY date DESC
+            WHERE (CASE 
+                    WHEN instr(date, ' ') > 0 THEN substr(date, 1, 10)
+                    ELSE date
+                END) BETWEEN ? AND ?
+            GROUP BY normalized_date
+            ORDER BY normalized_date DESC
         '''
         
         df = pd.read_sql_query(query, conn, params=(start_date, end_date))
         conn.close()
+        
+        # Rename normalized_date back to date for consistency
+        if not df.empty and 'normalized_date' in df.columns:
+            df = df.rename(columns={'normalized_date': 'date'})
         
         # Convert seconds to hours
         if not df.empty:
@@ -189,21 +201,32 @@ class SessionStorage:
         
         conn = sqlite3.connect(self.db_path)
         
+        # Normalize date format by extracting date part only
         query = '''
             SELECT 
-                date,
+                CASE 
+                    WHEN instr(date, ' ') > 0 THEN substr(date, 1, 10)
+                    ELSE date
+                END as normalized_date,
                 COUNT(*) as session_count,
                 SUM(focus_duration) as total_focus_seconds,
                 SUM(break_duration) as total_break_seconds,
                 AVG(productivity_score) as avg_productivity,
                 SUM(CASE WHEN completed = 1 THEN 1 ELSE 0 END) as completed_sessions
             FROM sessions
-            WHERE date = ?
-            GROUP BY date
+            WHERE (CASE 
+                    WHEN instr(date, ' ') > 0 THEN substr(date, 1, 10)
+                    ELSE date
+                END) = ?
+            GROUP BY normalized_date
         '''
         
         df = pd.read_sql_query(query, conn, params=(today,))
         conn.close()
+        
+        # Rename normalized_date back to date for consistency
+        if not df.empty and 'normalized_date' in df.columns:
+            df = df.rename(columns={'normalized_date': 'date'})
         
         # Convert seconds to hours
         if not df.empty:
@@ -229,9 +252,15 @@ class SessionStorage:
         """
         conn = sqlite3.connect(self.db_path)
         
+        # Normalize date format and calculate week
         query = '''
             SELECT 
-                strftime('%Y-%W', date) as week,
+                strftime('%Y-%W', 
+                    CASE 
+                        WHEN instr(date, ' ') > 0 THEN substr(date, 1, 10)
+                        ELSE date
+                    END
+                ) as week,
                 COUNT(*) as session_count,
                 SUM(focus_duration) as total_focus_seconds,
                 AVG(productivity_score) as avg_productivity,
@@ -280,14 +309,24 @@ class SessionStorage:
         
         conn = sqlite3.connect(self.db_path)
         
+        # Normalize date format for grouping
         query = '''
             SELECT 
-                date,
+                CASE 
+                    WHEN instr(date, ' ') > 0 THEN substr(date, 1, 10)
+                    ELSE date
+                END as normalized_date,
                 COUNT(*) as session_count,
                 SUM(focus_duration) as total_focus_minutes
             FROM sessions
-            WHERE date >= ? AND date < ?
-            GROUP BY date
+            WHERE (CASE 
+                    WHEN instr(date, ' ') > 0 THEN substr(date, 1, 10)
+                    ELSE date
+                END) >= ? AND (CASE 
+                    WHEN instr(date, ' ') > 0 THEN substr(date, 1, 10)
+                    ELSE date
+                END) < ?
+            GROUP BY normalized_date
         '''
         
         df = pd.read_sql_query(query, conn, params=(start_date, end_date))
@@ -296,12 +335,17 @@ class SessionStorage:
         # Create heatmap data structure
         heatmap_data = {}
         for _, row in df.iterrows():
-            date_obj = datetime.strptime(row['date'], "%Y-%m-%d")
-            day_key = date_obj.strftime("%Y-%m-%d")
-            heatmap_data[day_key] = {
-                'session_count': int(row['session_count']),
-                'total_focus_minutes': int(row['total_focus_minutes'] / 60) if pd.notna(row['total_focus_minutes']) else 0
-            }
+            date_str = row['normalized_date'] if 'normalized_date' in df.columns else row['date']
+            try:
+                date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+                day_key = date_obj.strftime("%Y-%m-%d")
+                heatmap_data[day_key] = {
+                    'session_count': int(row['session_count']),
+                    'total_focus_minutes': int(row['total_focus_minutes'] / 60) if pd.notna(row['total_focus_minutes']) else 0
+                }
+            except ValueError:
+                # Skip invalid date formats
+                continue
         
         return heatmap_data
     
@@ -323,33 +367,37 @@ class SessionStorage:
         end_date = datetime.now().strftime("%Y-%m-%d")
         start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
         
+        # Helper function to normalize date in WHERE clause
+        def normalize_date_where(date_field='date'):
+            return f"(CASE WHEN instr({date_field}, ' ') > 0 THEN substr({date_field}, 1, 10) ELSE {date_field} END)"
+        
         # Total focus time within date range
         cursor = conn.cursor()
-        cursor.execute("SELECT SUM(focus_duration) FROM sessions WHERE completed = 1 AND date BETWEEN ? AND ?", 
+        cursor.execute(f"SELECT SUM(focus_duration) FROM sessions WHERE completed = 1 AND {normalize_date_where()} BETWEEN ? AND ?", 
                       (start_date, end_date))
         total_focus_seconds = cursor.fetchone()[0] or 0
         insights['total_focus_hours'] = total_focus_seconds / 3600
         
         # Average focus duration within date range
-        cursor.execute("SELECT AVG(focus_duration) FROM sessions WHERE completed = 1 AND date BETWEEN ? AND ?", 
+        cursor.execute(f"SELECT AVG(focus_duration) FROM sessions WHERE completed = 1 AND {normalize_date_where()} BETWEEN ? AND ?", 
                       (start_date, end_date))
         avg_focus_seconds = cursor.fetchone()[0] or 0
         insights['avg_focus_minutes'] = round(avg_focus_seconds / 60, 1)  # Round to 1 decimal place
         
         # Session completion rate within date range
-        cursor.execute("SELECT COUNT(*) FROM sessions WHERE date BETWEEN ? AND ?", (start_date, end_date))
+        cursor.execute(f"SELECT COUNT(*) FROM sessions WHERE {normalize_date_where()} BETWEEN ? AND ?", (start_date, end_date))
         total_sessions = cursor.fetchone()[0] or 1
-        cursor.execute("SELECT COUNT(*) FROM sessions WHERE completed = 1 AND date BETWEEN ? AND ?", 
+        cursor.execute(f"SELECT COUNT(*) FROM sessions WHERE completed = 1 AND {normalize_date_where()} BETWEEN ? AND ?", 
                       (start_date, end_date))
         completed_sessions = cursor.fetchone()[0] or 0
         insights['completion_rate'] = (completed_sessions / total_sessions * 100) if total_sessions > 0 else 0
         
         # Most productive day (by session count) within date range
-        cursor.execute('''
-            SELECT date, COUNT(*) as session_count 
+        cursor.execute(f'''
+            SELECT {normalize_date_where()}, COUNT(*) as session_count 
             FROM sessions 
-            WHERE completed = 1 AND date BETWEEN ? AND ?
-            GROUP BY date 
+            WHERE completed = 1 AND {normalize_date_where()} BETWEEN ? AND ?
+            GROUP BY {normalize_date_where()} 
             ORDER BY session_count DESC 
             LIMIT 1
         ''', (start_date, end_date))
@@ -371,10 +419,10 @@ class SessionStorage:
         insights['current_streak'] = result[0] if result else 0
         
         # Best focus session (longest focus duration) within date range
-        cursor.execute('''
-            SELECT date, focus_duration 
+        cursor.execute(f'''
+            SELECT {normalize_date_where()}, focus_duration 
             FROM sessions 
-            WHERE completed = 1 AND date BETWEEN ? AND ?
+            WHERE completed = 1 AND {normalize_date_where()} BETWEEN ? AND ?
             ORDER BY focus_duration DESC 
             LIMIT 1
         ''', (start_date, end_date))
@@ -385,19 +433,19 @@ class SessionStorage:
         }
         
         # Sessions within date range
-        cursor.execute('''
+        cursor.execute(f'''
             SELECT COUNT(*) 
             FROM sessions 
-            WHERE date BETWEEN ? AND ? AND completed = 1
+            WHERE {normalize_date_where()} BETWEEN ? AND ? AND completed = 1
         ''', (start_date, end_date))
         result = cursor.fetchone()
         insights['sessions_in_range'] = result[0] if result else 0
         
         # Focus consistency (days with at least one session in date range)
-        cursor.execute('''
-            SELECT COUNT(DISTINCT date) 
+        cursor.execute(f'''
+            SELECT COUNT(DISTINCT {normalize_date_where()}) 
             FROM sessions 
-            WHERE date BETWEEN ? AND ? AND completed = 1
+            WHERE {normalize_date_where()} BETWEEN ? AND ? AND completed = 1
         ''', (start_date, end_date))
         result = cursor.fetchone()
         days_with_sessions = result[0] if result else 0
@@ -411,10 +459,10 @@ class SessionStorage:
             insights['avg_daily_focus_hours'] = 0
             
         # Distraction metric (incomplete sessions)
-        cursor.execute('''
+        cursor.execute(f'''
             SELECT COUNT(*) 
             FROM sessions 
-            WHERE date BETWEEN ? AND ? AND completed = 0
+            WHERE {normalize_date_where()} BETWEEN ? AND ? AND completed = 0
         ''', (start_date, end_date))
         result = cursor.fetchone()
         insights['incomplete_sessions'] = result[0] if result else 0
@@ -428,9 +476,12 @@ class SessionStorage:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        # Check if there was a session yesterday
+        # Check if there was a session yesterday (with date normalization)
         yesterday = (datetime.strptime(current_date, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
-        cursor.execute("SELECT COUNT(*) FROM sessions WHERE date = ?", (yesterday,))
+        cursor.execute("""
+            SELECT COUNT(*) FROM sessions 
+            WHERE (CASE WHEN instr(date, ' ') > 0 THEN substr(date, 1, 10) ELSE date END) = ?
+        """, (yesterday,))
         had_session_yesterday = cursor.fetchone()[0] > 0
         
         # Get current active streak
@@ -474,7 +525,11 @@ class SessionStorage:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        cursor.execute("DELETE FROM sessions WHERE date < ?", (cutoff_date,))
+        # Use normalized date for comparison
+        cursor.execute("""
+            DELETE FROM sessions 
+            WHERE (CASE WHEN instr(date, ' ') > 0 THEN substr(date, 1, 10) ELSE date END) < ?
+        """, (cutoff_date,))
         deleted_count = cursor.rowcount
         
         conn.commit()
@@ -519,6 +574,97 @@ class SessionStorage:
         
         return count
 
+    def generate_mock_data(self):
+        """
+        Generate 60 days of realistic mock sessions with consistent date-only format
+        """
+
+        import random
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        today = datetime.now()
+
+        for i in range(60):
+            base_date = today - timedelta(days=i)
+            
+            # 80% chance active day
+            if random.random() < 0.8:
+                session_count = random.randint(1, 5)
+
+                for _ in range(session_count):
+                    focus_duration = random.randint(25, 50) * 60
+                    break_duration = random.randint(5, 15) * 60
+                    productivity_score = random.randint(65, 100)
+
+                    # Store only date (YYYY-MM-DD) not timestamp
+                    date_only = base_date.strftime("%Y-%m-%d")
+                    
+                    cursor.execute(
+                        """
+                        INSERT INTO sessions (
+                            date,
+                            focus_duration,
+                            break_duration,
+                            completed,
+                            productivity_score,
+                            session_type,
+                            notes
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            date_only,
+                            focus_duration,
+                            break_duration,
+                            1,
+                            productivity_score,
+                            "focus",
+                            "MOCK_DATA"
+                        )
+                    )
+
+        conn.commit()
+        conn.close()
+
+        return True
+
+    def clear_mock_data(self):
+        """
+        Delete only mock data
+        """
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            DELETE FROM sessions
+            WHERE notes='MOCK_DATA'
+        """)
+
+        deleted = cursor.rowcount
+
+        conn.commit()
+        conn.close()
+
+        return deleted
+
+    def clear_all_sessions(self):
+        """
+        Delete ALL sessions from database
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("DELETE FROM sessions")
+
+        deleted_count = cursor.rowcount
+
+        conn.commit()
+        conn.close()
+
+        return deleted_count
 
 # Global instance for easy access
 session_storage = SessionStorage()

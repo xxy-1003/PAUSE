@@ -553,8 +553,8 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Create Quick Access cards in 2 columns
-col1, col2 = st.columns(2)
+# Create Quick Access cards in 3 columns
+col1, col2, col3 = st.columns(3)
 
 with col1:
     # Timer Card
@@ -611,6 +611,34 @@ with col2:
         # Analytics button that actually navigates
         if st.button("View Analytics", key="analytics_quick_access", use_container_width=True):
             st.switch_page("pages/2_Analytics.py")
+
+with col3:
+    # Focus Room Card
+    with st.container():
+        st.markdown("""
+        <div style="
+            background: white;
+            border-radius: 20px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(138, 43, 226, 0.08);
+            border: 1px solid rgba(138, 43, 226, 0.1);
+            transition: all 0.3s ease;
+            height: 100%;
+            text-align: center;
+        ">
+            <div style="font-size: 3rem; margin-bottom: 15px;">👥</div>
+            <div style="font-size: 1.2rem; font-weight: 600; color: #4B0082; margin-bottom: 10px;">
+                Focus Rooms
+            </div>
+            <div style="font-size: 0.9rem; color: #666; line-height: 1.4; margin-bottom: 20px;">
+                Study together with friends in virtual focus rooms.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Focus Room button that actually navigates
+        if st.button("Join Rooms", key="focus_room_quick_access", use_container_width=True):
+            st.switch_page("pages/4_Focus_Room.py")
 
 # Minimal Footer
 st.markdown("---")

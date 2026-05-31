@@ -13,6 +13,9 @@ if "current_mode" not in st.session_state:
 if "timer_running" not in st.session_state:
     st.session_state.timer_running = False
 
+if "focus_mode" not in st.session_state:
+    st.session_state.focus_mode = False
+
 if "timer_paused" not in st.session_state:
     st.session_state.timer_paused = False
 
@@ -87,8 +90,6 @@ if "auto_return_focus" not in st.session_state:
 # Timer loop control
 if "last_update_time" not in st.session_state:
     st.session_state.last_update_time = 0
-
-if "next_rerun_time" not in st.session_state:
     st.session_state.next_rerun_time = 0
 
 # ===== SOUND SYSTEM - SINGLE SOURCE OF TRUTH =====
@@ -377,7 +378,275 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from components.navigation import create_top_navigation
 
+# ============================================
+# UPDATE TIMERS AND CHECK COMPLETION
+# ============================================
+
+update_timers()
+
+session_completed = check_and_update_session_completion()
+
+break_completed = check_and_update_break_completion()
+
+# ============================================
+# FOCUS MODE OVERLAY - DISTRACTION-FREE FULLSCREEN
+# ============================================
+
+if st.session_state.focus_mode:
+    # ============================================
+    # A. HIDE NAVIGATION DURING FOCUS MODE
+    # ============================================
+    # Navigation is NOT rendered when focus_mode is True
+    # This creates a clean, distraction-free experience
+    
+    # ============================================
+    # B. FULLSCREEN FOCUS LAYOUT
+    # ============================================
+    # Show only essential elements:
+    # - Current mode (Focus / Break)
+    # - Large countdown timer
+    # - Progress indicator
+    # - Control buttons
+    
+    # Hide everything else:
+    # - Timer Settings
+    # - Statistics
+    # - Auto Settings
+    # - Navigation Bar
+    # - Any extra page content
+    
+    # Determine current mode and time
+    if st.session_state.current_mode == "Focus":
+        current_seconds = int(st.session_state.remaining_time)
+        mode_text = "🎯 Focus Session"
+        original_time = st.session_state.original_time
+        is_running = st.session_state.timer_running
+        is_paused = st.session_state.timer_paused
+    else:
+        current_seconds = int(st.session_state.break_remaining_time)
+        mode_text = "🌿 Break Session"
+        original_time = st.session_state.break_original_time
+        is_running = st.session_state.break_running
+        is_paused = st.session_state.break_paused
+    
+    # Format time display
+    minutes = current_seconds // 60
+    seconds = current_seconds % 60
+    time_display = f"{minutes:02d}:{seconds:02d}"
+    
+    # Calculate progress
+    if original_time > 0:
+        progress = 1 - (current_seconds / original_time)
+        progress = max(0.0, min(1.0, progress))
+    else:
+        progress = 0.0
+    
+    # ============================================
+    # FOCUS MODE UI
+    # ============================================
+    
+    # Center everything with fullscreen styling
+    st.markdown("""
+    <style>
+        .focus-mode-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 80vh;
+            text-align: center;
+            padding: 2rem;
+        }
+        .focus-mode-timer {
+            font-size: 120px;
+            font-weight: 800;
+            color: #8A2BE2;
+            margin: 1rem 0;
+            font-family: monospace;
+        }
+        .focus-mode-status {
+            font-size: 24px;
+            color: #666;
+            margin-bottom: 2rem;
+        }
+        .focus-mode-controls {
+            display: flex;
+            gap: 1rem;
+            margin-top: 2rem;
+            justify-content: center;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Status indicator
+    status_text = ""
+    if is_running and not is_paused:
+        status_text = "⏱️ Running"
+    elif is_paused:
+        status_text = "⏸️ Paused"
+    else:
+        status_text = "⏹️ Stopped"
+    
+    # Main focus mode display
+    st.markdown(f"""
+    <div class="focus-mode-container">
+        <h1 style="font-size: 36px; color: #4B0082; margin-bottom: 1rem;">{mode_text}</h1>
+        <div class="focus-mode-status">{status_text}</div>
+        <div class="focus-mode-timer">{time_display}</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Progress bar
+    st.progress(progress)
+    st.caption(f"Progress: {int(progress * 100)}%")
+    
+    # ============================================
+    # C. PAUSE / RESUME BEHAVIOUR
+    # ============================================
+    # Button dynamically switches:
+    # Running: ⏸ Pause
+    # Paused: ▶ Resume
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        # Pause/Resume button
+        if st.session_state.current_mode == "Focus":
+            if st.session_state.timer_running and not st.session_state.timer_paused:
+                button_label = "⏸ Pause"
+                button_type = "secondary"
+            else:
+                button_label = "▶ Resume"
+                button_type = "primary"
+        else:
+            if st.session_state.break_running and not st.session_state.break_paused:
+                button_label = "⏸ Pause"
+                button_type = "secondary"
+            else:
+                button_label = "▶ Resume"
+                button_type = "primary"
+        
+        if st.button(button_label, use_container_width=True, type=button_type):
+            if st.session_state.current_mode == "Focus":
+                if st.session_state.timer_running and not st.session_state.timer_paused:
+                    # Pause focus timer
+                    st.session_state.timer_running = False
+                    st.session_state.timer_paused = True
+                else:
+                    # Resume focus timer
+                    st.session_state.timer_running = True
+                    st.session_state.timer_paused = False
+                    st.session_state.last_update_time = time.time()
+            else:
+                if st.session_state.break_running and not st.session_state.break_paused:
+                    # Pause break timer
+                    st.session_state.break_running = False
+                    st.session_state.break_paused = True
+                else:
+                    # Resume break timer
+                    st.session_state.break_running = True
+                    st.session_state.break_paused = False
+                    st.session_state.last_update_time = time.time()
+            
+            st.rerun()
+    
+    with col2:
+        # Reset button
+        if st.button("🔄 Reset", use_container_width=True):
+            if st.session_state.current_mode == "Focus":
+                st.session_state.remaining_time = st.session_state.original_time
+                st.session_state.timer_running = False
+                st.session_state.timer_paused = False
+                st.session_state.timer_started = False
+                st.session_state.timer_status = "stopped"
+                st.session_state.session_completed_flag = False
+            else:
+                st.session_state.break_remaining_time = st.session_state.break_original_time
+                st.session_state.break_running = False
+                st.session_state.break_paused = False
+            
+            st.rerun()
+    
+    with col3:
+        # Mode switch button
+        if st.session_state.current_mode == "Focus":
+            switch_label = "🌿 Start Break"
+        else:
+            switch_label = "🎯 Start Focus"
+        
+        if st.button(switch_label, use_container_width=True):
+            if st.session_state.current_mode == "Focus":
+                # Switch to break mode
+                st.session_state.current_mode = "Break"
+                st.session_state.break_remaining_time = st.session_state.break_original_time
+                st.session_state.break_running = False
+                st.session_state.break_paused = False
+                # Reset completion flag when switching to break
+                st.session_state.session_completed_flag = False
+            else:
+                # Switch to focus mode
+                st.session_state.current_mode = "Focus"
+                st.session_state.remaining_time = st.session_state.original_time
+                st.session_state.timer_running = False
+                st.session_state.timer_paused = False
+                st.session_state.timer_started = False
+                st.session_state.timer_status = "stopped"
+                st.session_state.session_completed_flag = False
+            
+            st.rerun()
+    
+    with col4:
+        # ============================================
+        # G. EXIT BUTTON
+        # ============================================
+        # Only this button should leave focus_mode
+        if st.button("❌ Exit Focus Mode", use_container_width=True):
+            st.session_state.focus_mode = False
+            st.rerun()
+    
+    # ============================================
+    # D. AUTO REFRESH
+    # ============================================
+    # While timer or break timer is running:
+    # if (st.session_state.timer_running or st.session_state.break_running):
+    #     time.sleep(1)
+    #     st.rerun()
+    # This logic should exist inside Focus Mode before st.stop()
+    
+    if (st.session_state.timer_running and not st.session_state.timer_paused) or \
+       (st.session_state.break_running and not st.session_state.break_paused):
+        time.sleep(1)
+        st.rerun()
+    
+    # ============================================
+    # E. FOCUS SESSION COMPLETION
+    # ============================================
+    # When Focus completes:
+    # If auto_start_break == True:
+    #     stay inside focus_mode
+    #     switch to Break mode automatically
+    # Do NOT exit focus_mode.
+    
+    # ============================================
+    # F. BREAK COMPLETION
+    # ============================================
+    # When Break completes:
+    # If auto_return_focus == True:
+    #     return to Focus mode
+    # Do NOT exit focus_mode automatically.
+    
+    # Note: The completion logic is already handled by 
+    # check_and_update_session_completion() and 
+    # check_and_update_break_completion() functions above
+    
+    st.stop()
+
+# ============================================
+# NORMAL TIMER PAGE (WHEN NOT IN FOCUS MODE)
+# ============================================
+
 # Create top navigation (Timer is current page)
+# Only show navigation when NOT in focus mode
 create_top_navigation(current_page="Timer")
 
 # Page title
@@ -509,6 +778,9 @@ with col_main:
                 st.session_state.timer_status = "running"
                 st.session_state.last_update_time = time.time()
 
+                # Enter Focus Overlay
+                st.session_state.focus_mode = True
+
             elif st.session_state.timer_running and not st.session_state.timer_paused:
                 # Pause
                 st.session_state.timer_running = False
@@ -521,10 +793,12 @@ with col_main:
                 st.session_state.timer_paused = False
                 st.session_state.timer_status = "running"
                 st.session_state.last_update_time = time.time()
+                
+                # Enter Focus Overlay when resuming
+                st.session_state.focus_mode = True
 
             st.rerun()
-            # Don't call st.rerun() here - let the auto-rerun logic handle it
-            # The page will rerun because this is a button click
+    
     else:
         # Break mode controls
         if not st.session_state.break_running:
@@ -545,6 +819,8 @@ with col_main:
                 st.session_state.break_paused = False
                 # Initialize last_update_time when break starts
                 st.session_state.last_update_time = time.time()
+                # Enter Focus Overlay when starting break
+                st.session_state.focus_mode = True
             elif st.session_state.break_running and not st.session_state.break_paused:
                 # Pausing the running break timer
                 st.session_state.break_paused = True
@@ -553,10 +829,10 @@ with col_main:
                 st.session_state.break_paused = False
                 # Update last_update_time when resuming
                 st.session_state.last_update_time = time.time()
+                # Enter Focus Overlay when resuming break
+                st.session_state.focus_mode = True
             
             st.rerun()
-            # Don't call st.rerun() here - let the auto-rerun logic handle it
-            # The page will rerun because this is a button click
 
 with col_reset:
     # Reset button (resets current mode timer)
@@ -575,7 +851,6 @@ with col_reset:
             st.session_state.break_paused = False
             st.session_state.interval_break_start_time = 0
         st.rerun()
-        # Don't call st.rerun() here - the page will rerun because this is a button click
 
 with col_switch:
     # Mode switch button (manual override)
@@ -607,20 +882,6 @@ with col_switch:
             st.session_state.session_completed_flag = False
             st.session_state.interval_break_start_time = 0
         st.rerun()
-        # Don't call st.rerun() here - the page will rerun because this is a button click
-
-# ============================================
-# UPDATE TIMERS AND CHECK COMPLETION
-# ============================================
-
-# Update running timers (this happens on each page load/rerun)
-update_timers()
-
-# Check if focus session has completed
-session_completed = check_and_update_session_completion()
-
-# Check if break has completed
-break_completed = check_and_update_break_completion()
 
 # ============================================
 # SECTION 3: TIMER SETTINGS
@@ -667,7 +928,9 @@ else:
             new_original_time = session_length * 60
             st.session_state.remaining_time = new_original_time
             st.session_state.original_time = new_original_time
-        
+
+            st.rerun()
+
         # Break duration selector
         break_length = st.select_slider(
             "Break Duration",
@@ -684,6 +947,8 @@ else:
             st.session_state.break_original_time = new_break_original_time
             st.session_state.break_duration = new_break_original_time
     
+            st.rerun()
+
     with col_set2:
         # Sound selector
         st.markdown("**🔔 Notification Sound**")
@@ -735,6 +1000,8 @@ else:
         # Show interval settings only when enabled
         if st.session_state.interval_break_enabled:
             
+            interval_options = [5, 10, 15, 20, 25, 30, 35, 40]
+
             current_value = st.session_state.interval_break_minutes
 
             if current_value not in interval_options:
@@ -744,8 +1011,8 @@ else:
             # Interval frequency selector - RESTORED with requested options
             interval_minutes = st.select_slider(
                 "Take Break Every:",
-                options=[5, 10, 15, 20, 25, 30, 35, 40],
-                value=st.session_state.interval_break_minutes,
+                options=interval_options,
+                value=current_value,
                 help="How often to take interval breaks",
                 key="interval_frequency"
             )
@@ -777,99 +1044,118 @@ else:
 st.markdown("---")
 st.markdown("### 📊 Session Statistics")
 
-# Check if timer is running to determine if settings should be locked
-if timer_active:
-    st.info("🔒 **Focus Mode Active** - Statistics are locked during active sessions")
-    
-    # Show current statistics as read-only
-    col_stat1, col_stat2 = st.columns(2)
-    
-    with col_stat1:
-        st.markdown(f"**Completed Sessions Today:** {st.session_state.completed_sessions}")
-        st.markdown(f"**Focus Time Today:** {st.session_state.total_focus_time} min")
-    
-    with col_stat2:
-        st.markdown(f"**Current Streak:** {st.session_state.current_streak} days")
-        # Daily progress
-        if st.session_state.daily_target > 0:
-            progress = min(st.session_state.completed_sessions / st.session_state.daily_target, 1.0)
-            st.markdown(f"**Daily Progress:** {st.session_state.completed_sessions} / {st.session_state.daily_target} sessions")
-            st.progress(progress)
-            st.caption(f"Daily goal: {int(progress * 100)}%")
-        else:
-            st.markdown("**Daily Progress:** No target set")
-else:
-    # Statistics are editable when timer is not running
-    col_stat1, col_stat2 = st.columns(2)
-    
-    with col_stat1:
-        # Completed Sessions
-        st.metric(
-            label="Completed Sessions Today",
-            value=st.session_state.completed_sessions,
-            delta=None
+col_stat1, col_stat2 = st.columns(2)
+
+# -------------------------
+# LEFT COLUMN
+# -------------------------
+with col_stat1:
+
+    st.metric(
+        "Completed Sessions Today",
+        st.session_state.completed_sessions
+    )
+
+    st.metric(
+        "Focus Time Today",
+        f"{st.session_state.total_focus_time} min"
+    )
+
+    st.metric(
+        "Current Streak",
+        f"{st.session_state.current_streak} days"
+    )
+
+# -------------------------
+# RIGHT COLUMN
+# -------------------------
+with col_stat2:
+
+    st.markdown("**🎯 Daily Session Target**")
+
+    if timer_active:
+
+        st.info("🔒 Statistics settings locked")
+
+        st.markdown(
+            f"**Target:** {st.session_state.daily_target} Sessions"
         )
-        
-        # Focus Time Today
-        st.metric(
-            label="Focus Time Today",
-            value=f"{st.session_state.total_focus_time} min",
-            delta=None
-        )
-        
-        # Current Streak
-        st.metric(
-            label="Current Streak",
-            value=f"{st.session_state.current_streak} days",
-            delta=None
-        )
-    
-    with col_stat2:
-        # Daily Session Target
-        st.markdown("**🎯 Daily Session Target**")
-        
-        # Daily target selector
+
+    else:
+
         daily_target = st.select_slider(
             "Target Sessions Per Day",
-            options=list(range(1, 21)),  # 1-20 sessions
+            options=list(range(1, 21)),
             value=st.session_state.daily_target,
             help="Set your daily focus session target",
             key="daily_target_slider"
         )
-        
-        # Update daily target
+
         if daily_target != st.session_state.daily_target:
             st.session_state.daily_target = daily_target
-        
-        # Daily progress display
-        st.markdown(f"**Target:** {st.session_state.daily_target} Sessions")
-        st.markdown(f"**Current:** {st.session_state.completed_sessions} Sessions")
-        
-        if st.session_state.daily_target > 0:
-            progress = min(st.session_state.completed_sessions / st.session_state.daily_target, 1.0)
-            st.progress(progress)
-            st.caption(f"Daily progress: {st.session_state.completed_sessions}/{st.session_state.daily_target} sessions ({int(progress * 100)}%)")
-        else:
-            st.caption("Set a daily target to track progress")
-        
-        # Reset Statistics Button
+
+    st.markdown(
+        f"**Current:** {st.session_state.completed_sessions} Sessions"
+    )
+
+    if st.session_state.daily_target > 0:
+
+        progress = min(
+            st.session_state.completed_sessions /
+            st.session_state.daily_target,
+            1.0
+        )
+
+        st.progress(progress)
+
+        st.caption(
+            f"Daily progress: "
+            f"{st.session_state.completed_sessions}/"
+            f"{st.session_state.daily_target} "
+            f"sessions ({int(progress * 100)}%)"
+        )
+
+    if not timer_active:
+
         st.markdown("---")
         st.markdown("**🗑 Reset Statistics**")
-        
-        if st.button("Reset All Statistics", key="reset_stats", use_container_width=True):
-            # Show confirmation
-            st.warning("Are you sure you want to reset all statistics? This cannot be undone.")
+
+        if st.button(
+            "Reset All Statistics",
+            key="reset_stats",
+            use_container_width=True
+        ):
+
+            st.warning(
+                "Are you sure you want to reset all statistics?"
+            )
+
             col_confirm1, col_confirm2 = st.columns(2)
+
             with col_confirm1:
-                if st.button("Yes, Reset", key="confirm_reset", use_container_width=True):
+
+                if st.button(
+                    "Yes, Reset",
+                    key="confirm_reset",
+                    use_container_width=True
+                ):
                     st.session_state.completed_sessions = 0
                     st.session_state.total_focus_time = 0
                     st.session_state.current_streak = 0
-                    st.success("Statistics reset successfully!")
-            with col_confirm2:
-                if st.button("Cancel", key="cancel_reset", use_container_width=True):
-                    st.info("Reset cancelled")
 
+                    st.success(
+                        "Statistics reset successfully!"
+                    )
+
+            with col_confirm2:
+
+                if st.button(
+                    "Cancel",
+                    key="cancel_reset",
+                    use_container_width=True
+                ):
+                    st.info("Reset cancelled")
+                    
 # ============================================
 # SECTION 5: AUTO-SETTINGS
 # ============================================
@@ -923,12 +1209,8 @@ else:
 # # AUTO-RERUN LOGIC FOR TIMER COUNTDOWN
 # # ============================================
 
-# if (st.session_state.timer_running and not st.session_state.timer_paused) or \
-#    (st.session_state.break_running and not st.session_state.break_paused):
+if (st.session_state.timer_running and not st.session_state.timer_paused) or \
+   (st.session_state.break_running and not st.session_state.break_paused):
 
-#     current_time = time.time()
-
-#     if current_time >= st.session_state.next_rerun_time:
-#         # Rerun every 100ms for smooth countdown (10 FPS)
-#         st.session_state.next_rerun_time = current_time + 0.1
-#         st.rerun()
+    time.sleep(1)
+    st.rerun()
