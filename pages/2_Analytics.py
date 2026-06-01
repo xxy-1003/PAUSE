@@ -2,37 +2,19 @@ import streamlit as st
 import plotly.graph_objects as go
 import plotly.express as px
 import pandas as pd
-import sqlite3
 import numpy as np
 from datetime import datetime, timedelta
 import calendar
 import sys
 import os
 
-def generate_mock_data():
-    return pd.DataFrame([
-        {"date": "2026-05-30 10:00:00", "duration": 25},
-        {"date": "2026-05-30 11:00:00", "duration": 50},
-        {"date": "2026-05-31 09:00:00", "duration": 30},
-        {"date": "2026-05-31 14:00:00", "duration": 45},
-    ])
-
-
-def load_real_data():
-    conn = sqlite3.connect("pause.db")
-    df = pd.read_sql("SELECT * FROM sessions", conn)
-    conn.close()
-    return df
-
 # ============================================
-# DEMO MODE
+# IMPORT THE CORRECT STORAGE SYSTEM
 # ============================================
 
-DEMO_MODE = False
-
-# Add parent directory to path to import data_storage
+# Add parent directory to path to import pause_storage (which uses pause.db)
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from data_storage import session_storage
+from pause_storage import session_storage
 
 # Import top navigation component
 from components.navigation import create_top_navigation
@@ -425,7 +407,7 @@ def calculate_burnout_level(daily_summary, insights):
     
     # Factor 2: Streak length with rest days consideration
     # Healthy: 5-6 days/week with 1-2 rest days
-    current_streak = insights.get('current_streak', 0)
+    current_streak = st.session_state["focus_settings"]["current_streak"]
     if current_streak <= 3:
         streak_factor = 20  # Short streak, low risk
     elif current_streak <= 7:
@@ -532,101 +514,74 @@ def calculate_burnout_level(daily_summary, insights):
     return level, int(burnout_score), supporting_metrics
 
 def get_today_sessions_by_hour():
-    from datetime import datetime, timedelta
-    import random
-    import numpy as np
-
-    # =========================================
-    # 1️⃣ GET TODAY'S SESSIONS
-    # =========================================
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    today_sessions = session_storage.get_sessions(
-        start_date=today_str,
-        end_date=today_str
-    )
-
+    """Get today's sessions aggregated by hour using real timestamps"""
+    # Get today's sessions from the correct storage system
+    today_sessions = session_storage.get_today_sessions("default_user")
+    
     if today_sessions.empty:
-        return pd.DataFrame(columns=[
-            "hour", "focus_minutes", "session_count"
-        ])
-
-    # =========================================
-    # 2️⃣ CREATE REALISTIC HOURLY DISTRIBUTION WITH VARIATION
-    # =========================================
-    # Typical work hours: 8 AM to 8 PM (12 hours)
-    working_hours = list(range(8, 20))
-    
-    # Create hourly distribution
-    hourly_data = []
-    total_sessions = len(today_sessions)
-    
-    if total_sessions > 0:
-        # Get actual focus durations for variation
-        focus_durations = today_sessions['focus_duration'].values / 60  # Convert to minutes
-        
-        # Create a more realistic distribution with variation
-        # Peak hours (10 AM - 4 PM) get more sessions with higher focus
-        # Regular hours get fewer sessions with moderate focus
-        # Non-working hours get no sessions
-        
-        # Initialize sessions per hour
-        sessions_per_hour = {hour: 0 for hour in range(24)}
-        focus_per_hour = {hour: 0.0 for hour in range(24)}
-        
-        # Distribute sessions with variation
-        session_index = 0
-        for _ in range(total_sessions):
-            # Choose hour with probability based on time of day
-            # Create a bell curve distribution centered around 1 PM (13:00)
-            hour_probs = []
-            for hour in range(24):
-                if 8 <= hour < 20:  # Working hours
-                    # Bell curve: highest probability at 13:00 (1 PM)
-                    prob = np.exp(-((hour - 13) ** 2) / 18.0)  # Gaussian-like distribution
-                    hour_probs.append(prob)
-                else:
-                    hour_probs.append(0.0)
-            
-            # Normalize probabilities
-            total_prob = sum(hour_probs)
-            if total_prob > 0:
-                hour_probs = [p / total_prob for p in hour_probs]
-                # Choose hour based on probability
-                chosen_hour = random.choices(range(24), weights=hour_probs, k=1)[0]
-            else:
-                chosen_hour = random.choice(working_hours)
-            
-            # Assign focus duration (use actual or simulated)
-            if session_index < len(focus_durations):
-                focus_duration = focus_durations[session_index]
-            else:
-                # If we run out of actual durations, use average
-                focus_duration = np.mean(focus_durations)
-            
-            # Add some random variation (±20%)
-            variation = random.uniform(0.8, 1.2)
-            focus_duration *= variation
-            
-            sessions_per_hour[chosen_hour] += 1
-            focus_per_hour[chosen_hour] += focus_duration
-            session_index += 1
-        
-        # Create hourly data with focus minutes
-        for hour in range(24):
-            hourly_data.append({
-                'hour': hour,
-                'focus_minutes': focus_per_hour[hour],
-                'session_count': sessions_per_hour[hour]
-            })
-    else:
-        # No sessions today
+        # Return empty dataframe with all 24 hours
+        hourly_data = []
         for hour in range(24):
             hourly_data.append({
                 'hour': hour,
                 'focus_minutes': 0,
                 'session_count': 0
             })
-
+        return pd.DataFrame(hourly_data)
+    
+    # Initialize hourly counters
+    focus_per_hour = {hour: 0 for hour in range(24)}
+    sessions_per_hour = {hour: 0 for hour in range(24)}
+    
+    # Process each session
+    for _, session in today_sessions.iterrows():
+        try:
+            # Extract hour from completed_at timestamp
+            # Format: "YYYY-MM-DD HH:MM:SS"
+            completed_at = session['completed_at']
+            
+            # Parse the timestamp
+            if isinstance(completed_at, str):
+                # Try to parse the timestamp
+                try:
+                    # Handle different timestamp formats
+                    if ' ' in completed_at:
+                        # Format: "YYYY-MM-DD HH:MM:SS"
+                        time_part = completed_at.split(' ')[1]
+                        hour = int(time_part.split(':')[0])
+                    else:
+                        # If no time part, use default hour (12 PM)
+                        hour = 12
+                except (ValueError, IndexError):
+                    # If parsing fails, use default hour
+                    hour = 12
+            else:
+                # If not a string, use default hour
+                hour = 12
+            
+            # Ensure hour is within 0-23 range
+            hour = max(0, min(23, hour))
+            
+            # Get duration in minutes
+            duration_minutes = session['duration_minutes']
+            
+            # Add to hourly totals
+            focus_per_hour[hour] += duration_minutes
+            sessions_per_hour[hour] += 1
+            
+        except Exception as e:
+            # Skip sessions with invalid data
+            continue
+    
+    # Create hourly data
+    hourly_data = []
+    for hour in range(24):
+        hourly_data.append({
+            'hour': hour,
+            'focus_minutes': focus_per_hour[hour],
+            'session_count': sessions_per_hour[hour]
+        })
+    
     return pd.DataFrame(hourly_data)
 
 create_top_navigation(current_page="Analytics")
@@ -653,40 +608,40 @@ st.divider()
 
 
 # Analytics Data
-daily_summary = session_storage.get_daily_summary(days=days_to_show)
-weekly_summary = session_storage.get_weekly_summary(
-    weeks=days_to_show // 7 if days_to_show >= 7 else 1
-)
-insights = session_storage.get_advanced_insights(days=days_to_show)
-today_summary = session_storage.get_today_summary()
+username = "default_user"
+daily_summary = session_storage.get_daily_summary(username, days=days_to_show)
+# Note: pause_storage doesn't have get_weekly_summary, get_advanced_insights, or get_today_summary
+# We'll use get_user_statistics instead of get_advanced_insights
+user_stats = session_storage.get_user_statistics(username)
+# Get today's sessions for today_summary
+today_sessions = session_storage.get_today_sessions(username)
 
-# Calculate current week vs last week
-if not daily_summary.empty:
-    # Get this week's data (last 7 days)
-    this_week = daily_summary.head(7)
-    last_week = daily_summary.iloc[7:14] if len(daily_summary) >= 14 else pd.DataFrame()
-    
-    this_week_focus = this_week['total_focus_hours'].sum() if not this_week.empty else 0
-    last_week_focus = last_week['total_focus_hours'].sum() if not last_week.empty else 0
-    
-    this_week_sessions = this_week['session_count'].sum() if not this_week.empty else 0
-    last_week_sessions = last_week['session_count'].sum() if not last_week.empty else 0
-    
-    this_week_avg_session = this_week['avg_focus_duration'].mean() if not this_week.empty and 'avg_focus_duration' in this_week.columns else 0
-    last_week_avg_session = last_week['avg_focus_duration'].mean() if not last_week.empty and 'avg_focus_duration' in last_week.columns else 0
-else:
-    this_week_focus = 0
-    last_week_focus = 0
-    this_week_sessions = 0
-    last_week_sessions = 0
-    this_week_avg_session = 0
-    last_week_avg_session = 0
+# Calculate current week vs last week using user_stats
+this_week_focus = user_stats.get('weekly_minutes', 0) / 60  # Convert minutes to hours
+this_week_sessions = user_stats.get('weekly_sessions', 0)
+this_week_avg_session = user_stats.get('avg_duration', 0)  # Already in minutes
+
+# For last week, we don't have direct data in pause_storage
+# We'll calculate from daily_summary if available
+last_week_focus = 0
+last_week_sessions = 0
+last_week_avg_session = 0
+
+if not daily_summary.empty and len(daily_summary) >= 14:
+    # Get last week's data (days 8-14)
+    last_week_data = daily_summary.iloc[7:14]
+    if not last_week_data.empty:
+        last_week_focus = last_week_data['total_hours'].sum() if 'total_hours' in last_week_data.columns else 0
+        last_week_sessions = last_week_data['session_count'].sum() if 'session_count' in last_week_data.columns else 0
+        if last_week_sessions > 0:
+            last_week_avg_session = last_week_data['avg_duration'].mean() if 'avg_duration' in last_week_data.columns else 0
 
 # Calculate today's completion rate
-if not today_summary.empty:
-    total_sessions_today = today_summary.iloc[0]['session_count']
-    completed_sessions_today = today_summary.iloc[0]['completed_sessions']
-    completion_rate_today = (completed_sessions_today / total_sessions_today * 100) if total_sessions_today > 0 else 0
+if not today_sessions.empty:
+    total_sessions_today = len(today_sessions)
+    # In pause_storage, all sessions are assumed completed when saved
+    completed_sessions_today = total_sessions_today
+    completion_rate_today = 100 if total_sessions_today > 0 else 0
 else:
     total_sessions_today = 0
     completed_sessions_today = 0
@@ -703,9 +658,10 @@ with today_col1:
     # Today's Focus Time
     st.markdown('<div class="stat-card">', unsafe_allow_html=True)
     st.markdown('<div class="metric-label">Focus Time</div>', unsafe_allow_html=True)
-    if not today_summary.empty:
-        today_focus = today_summary.iloc[0]['total_focus_hours']
-        st.markdown(f'<div class="metric-value">{today_focus:.1f}h</div>', unsafe_allow_html=True)
+    if not today_sessions.empty:
+        today_focus_minutes = today_sessions['duration_minutes'].sum()
+        today_focus_hours = today_focus_minutes / 60
+        st.markdown(f'<div class="metric-value">{today_focus_hours:.1f}h</div>', unsafe_allow_html=True)
     else:
         st.markdown(f'<div class="metric-value">0h</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
@@ -714,9 +670,10 @@ with today_col2:
     # Today's Sessions
     st.markdown('<div class="stat-card">', unsafe_allow_html=True)
     st.markdown('<div class="metric-label">Sessions</div>', unsafe_allow_html=True)
-    if not today_summary.empty:
-        total_sessions = int(today_summary.iloc[0]['session_count'])
-        completed_sessions = int(today_summary.iloc[0]['completed_sessions'])
+    if not today_sessions.empty:
+        total_sessions = len(today_sessions)
+        # All sessions are completed in pause_storage
+        completed_sessions = total_sessions
         st.markdown(f'<div class="metric-value">{completed_sessions}/{total_sessions}</div>', unsafe_allow_html=True)
     else:
         st.markdown(f'<div class="metric-value">0/0</div>', unsafe_allow_html=True)
@@ -726,7 +683,7 @@ with today_col3:
     # Today's Completion Rate
     st.markdown('<div class="stat-card">', unsafe_allow_html=True)
     st.markdown('<div class="metric-label">Completion Rate</div>', unsafe_allow_html=True)
-    if not today_summary.empty and total_sessions_today > 0:
+    if not today_sessions.empty and total_sessions_today > 0:
         completion_rate = (completed_sessions_today / total_sessions_today * 100)
         st.markdown(f'<div class="metric-value">{completion_rate:.0f}%</div>', unsafe_allow_html=True)
     else:
@@ -820,7 +777,7 @@ if not hourly_data.empty and hourly_data['focus_minutes'].sum() > 0:
 
     st.plotly_chart(fig, use_container_width=True)
 
-    st.caption("🟣 Darker = more focus time | Each cell = 1 hour of activity (simulated distribution)")
+    st.caption("🟣 Darker = more focus time | Each cell = 1 hour of activity based on actual session timestamps")
 
 else:
     st.info("⏰ No sessions recorded today yet. Start your first focus session!")
@@ -842,18 +799,17 @@ with week_col1:
     st.markdown('</div>', unsafe_allow_html=True)
 
 with week_col2:
-    # Average Daily Focus this week
+    # Average Session Duration this week
     st.markdown('<div class="stat-card">', unsafe_allow_html=True)
-    st.markdown('<div class="metric-label">Average Daily Focus</div>', unsafe_allow_html=True)
-    avg_daily_focus = this_week_focus / 7 if this_week_focus > 0 else 0
-    st.markdown(f'<div class="metric-value">{avg_daily_focus:.1f}h</div>', unsafe_allow_html=True)
+    st.markdown('<div class="metric-label">Avg Session Duration</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-value">{this_week_avg_session:.0f} min</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
 with week_col3:
-    # Weekly Focus Hours (same as total, but keeping the label)
+    # Weekly Sessions Count
     st.markdown('<div class="stat-card">', unsafe_allow_html=True)
-    st.markdown('<div class="metric-label">Weekly Focus Hours</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="metric-value">{this_week_focus:.1f}h</div>', unsafe_allow_html=True)
+    st.markdown('<div class="metric-label">Weekly Sessions</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-value">{this_week_sessions}</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
@@ -947,183 +903,165 @@ fig.update_layout(
 st.plotly_chart(fig, use_container_width=True)
 
 # ============================================
-# WEEKLY PERFORMANCE (STABLE FULL VERSION)
-# Calendar Range + Weekly Aggregation + Mock Fallback
+# BURNOUT LEVEL ASSESSMENT
+# ============================================
+st.markdown("### 📊 Burnout Breakdown")
+
+chart_data = [
+    {"metric": "Focus", "value": metrics["focus_intensity"]},
+    {"metric": "Streak", "value": metrics["streak_length"]},
+    {"metric": "Session", "value": metrics["session_length"]},
+    {"metric": "Rest", "value": metrics["rest_frequency"]},
+    {"metric": "Consistency", "value": metrics["consistency"]},
+    {"metric": "Completion", "value": metrics["completion_rate"]},
+    {"metric": "Distractions", "value": metrics["distractions"]},
+]
+
+import plotly.express as px
+
+fig = px.bar(chart_data, x="metric", y="value", color="value")
+fig.update_layout(
+    height=300,
+    plot_bgcolor="white",
+    paper_bgcolor="white"
+)
+
+st.plotly_chart(fig, use_container_width=True)
+
+# ============================================
+# WEEKLY PERFORMANCE CHART 
 # ============================================
 
 st.markdown('<div class="chart-container">', unsafe_allow_html=True)
 st.markdown("### 📈 Weekly Focus Performance")
 
-import pandas as pd
-import plotly.graph_objects as go
-from datetime import datetime
-
 # =========================
-# 1️⃣ CALENDAR RANGE
+# 1️⃣ LOAD RAW DATA FIRST
 # =========================
-col1, col2 = st.columns(2)
+all_sessions = session_storage.get_all_sessions("default_user")
 
-with col1:
-    start_date = st.date_input("Start Date")
-
-with col2:
-    end_date = st.date_input("End Date")
-
-if start_date > end_date:
-    st.error("Start date must be before end date")
-    st.stop()
-
-# =========================
-# 2️⃣ MIN 1 WEEKS CHECK
-# =========================
-days_selected = (end_date - start_date).days + 1
-
-if days_selected < 7:
-    st.warning("⚠️ Please select at least 1 week (7 days minimum)")
-    st.stop()
-
-# =========================
-# 3️⃣ GET RAW DATA WITH ERROR HANDLING
-# =========================
-df = session_storage.get_daily_summary(days=365)
-
-if not df.empty:
-    try:
-        # Safely convert date strings to datetime
-        df["date_dt"] = pd.to_datetime(df["date"], errors='coerce')
-        # Drop rows with invalid dates
-        df = df.dropna(subset=["date_dt"])
-    except Exception:
-        # If conversion fails, create empty dataframe
-        df = pd.DataFrame()
-
-# =========================
-# 4️⃣ FILTER DATE RANGE WITH ERROR HANDLING
-# =========================
-if not df.empty:
-    try:
-        # Filter selected date range
-        df = df[
-            (df["date_dt"].dt.date >= start_date) &
-            (df["date_dt"].dt.date <= end_date)
-        ]
-
-        if not df.empty:
-            # Group by week
-            df["week"] = df["date_dt"].dt.to_period("W")
-            
-            weekly_df = (
-                df.groupby("week")
-                .agg({
-                    "total_focus_hours": "sum",
-                    "session_count": "sum"
-                })
-                .reset_index()
-            )
-
-            weekly_df["week_label"] = [
-                f"Week {i+1}"
-                for i in range(len(weekly_df))
-            ]
-        else:
-            weekly_df = pd.DataFrame(
-                columns=[
-                    "week_label",
-                    "total_focus_hours",
-                    "session_count"
-                ]
-            )
-    except Exception:
-        weekly_df = pd.DataFrame(
-            columns=[
-                "week_label",
-                "total_focus_hours",
-                "session_count"
-            ]
-        )
+# Always create weekly_df even if empty
+if all_sessions.empty:
+    weekly_df = pd.DataFrame(columns=['year_week', 'total_focus_minutes', 'session_count', 'total_focus_hours', 'week_label'])
 else:
-    weekly_df = pd.DataFrame(
-        columns=[
-            "week_label",
-            "total_focus_hours",
-            "session_count"
-        ]
-    )
-    
-# =========================
-# 7️⃣ COLOR SCALE
-# =========================
-def get_color(h):
-    if h < 5:
-        return "#D6B3FF"
-    elif h < 10:
-        return "#8A2BE2"
+    # =========================
+    # 2️⃣ CLEAN + PREP DATA
+    # =========================
+    all_sessions['date_dt'] = pd.to_datetime(all_sessions['session_date'], errors='coerce')
+    all_sessions = all_sessions.dropna(subset=['date_dt'])
+
+    if all_sessions.empty:
+        weekly_df = pd.DataFrame(columns=['year_week', 'total_focus_minutes', 'session_count', 'total_focus_hours', 'week_label'])
     else:
-        return "#4B0082"
+        # Create week grouping
+        all_sessions['year_week'] = all_sessions['date_dt'].dt.strftime('%Y-W%U')
 
-colors = weekly_df["total_focus_hours"].apply(get_color)
+        weekly_df = all_sessions.groupby('year_week').agg({
+            'duration_minutes': 'sum',
+            'id': 'count'
+        }).reset_index()
+
+        weekly_df = weekly_df.rename(columns={
+            'duration_minutes': 'total_focus_minutes',
+            'id': 'session_count'
+        })
+
+        weekly_df['total_focus_hours'] = weekly_df['total_focus_minutes'] / 60
+        weekly_df['week_label'] = weekly_df['year_week']
+        weekly_df = weekly_df.sort_values('year_week')
+
+# Create week grouping
+all_sessions['year_week'] = all_sessions['date_dt'].dt.strftime('%Y-W%U')
+
+weekly_df = all_sessions.groupby('year_week').agg({
+    'duration_minutes': 'sum',
+    'id': 'count'
+}).reset_index()
+
+weekly_df = weekly_df.rename(columns={
+    'duration_minutes': 'total_focus_minutes',
+    'id': 'session_count'
+})
+
+weekly_df['total_focus_hours'] = weekly_df['total_focus_minutes'] / 60
+weekly_df['week_label'] = weekly_df['year_week']
+weekly_df = weekly_df.sort_values('year_week')
 
 # =========================
-# 8️⃣ BAR CHART (ONE BAR PER WEEK)
+# 3️⃣ WEEK SELECTOR (RESTORED)
 # =========================
+if weekly_df.empty:
+    st.info("No weekly data available. Complete some focus sessions first.")
+    available_weeks = ["No data available"]
+    selected_week = "No data available"
+    filtered_df = pd.DataFrame(columns=['week_label', 'total_focus_hours', 'session_count'])
+else:
+    available_weeks = weekly_df["week_label"].tolist()[::-1]
+    selected_week = st.selectbox(
+        "Select Week",
+        available_weeks,
+        index=0
+    )
+    filtered_df = weekly_df[weekly_df["week_label"] == selected_week]
+
+# =========================
+# 4️⃣ CHART (USES FILTERED DATA)
+# =========================
+import plotly.graph_objects as go
+
 fig = go.Figure()
 
-fig.add_trace(go.Bar(
-    x=weekly_df["week_label"],
-    y=weekly_df["total_focus_hours"],
-    marker=dict(color=colors),
-    width=0.6,
-    hovertemplate=
-        "<b>%{x}</b><br>" +
-        "Focus: %{y:.1f}h<br>" +
-        "<extra></extra>"
-))
+if not filtered_df.empty and not weekly_df.empty:
+    fig.add_trace(go.Bar(
+        x=filtered_df["week_label"],
+        y=filtered_df["total_focus_hours"],
+        marker=dict(color="#8A2BE2"),
+        width=0.6,
+        hovertemplate=
+            "<b>%{x}</b><br>" +
+            "Focus: %{y:.1f} hours<br>" +
+            "Sessions: %{customdata[0]}<br>" +
+            "<extra></extra>",
+        customdata=filtered_df[["session_count"]].values
+    ))
+else:
+    # Add empty bar for visual consistency
+    fig.add_trace(go.Bar(
+        x=["No data"],
+        y=[0],
+        marker=dict(color="#E6E6FA"),
+        width=0.6,
+        hovertemplate="No weekly data available"
+    ))
 
 # =========================
-# 9️⃣ SESSION LABELS
-# =========================
-for i, row in weekly_df.iterrows():
-    fig.add_annotation(
-        x=row["week_label"],
-        y=row["total_focus_hours"],
-        text=f"{int(row['session_count'])} sessions",
-        showarrow=False,
-        yshift=10,
-        font=dict(color="#333", size=11)
-    )
-
-# =========================
-# 🔟 LAYOUT
+# 5️⃣ LAYOUT
 # =========================
 fig.update_layout(
     plot_bgcolor="white",
     paper_bgcolor="white",
-
     xaxis=dict(
         title="Week",
         tickfont=dict(color="#333"),
         gridcolor="rgba(0,0,0,0.05)"
     ),
-
     yaxis=dict(
         title="Total Focus Hours",
         gridcolor="rgba(0,0,0,0.05)"
     ),
-
-    height=420
+    height=420,
+    margin=dict(l=20, r=20, t=20, b=20)
 )
 
 st.plotly_chart(fig, use_container_width=True)
 
 # =========================
-# MODE INDICATOR
+# 6️⃣ SMALL INSIGHT TEXT
 # =========================
-if weekly_df.empty:
-    st.warning("No data found in selected range")
+if not weekly_df.empty and not filtered_df.empty:
+    st.caption(f"📊 Showing data for {selected_week} • {int(filtered_df['session_count'].sum())} sessions total")
 else:
-    st.success("Showing real analytics data")
-
-st.caption("Each bar = total focus per week | Minimum 1 weeks required")
+    st.caption("📊 No weekly data available")
 
 st.markdown('</div>', unsafe_allow_html=True)
 

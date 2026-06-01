@@ -1,6 +1,6 @@
 import streamlit as st
 import random
-from datetime import datetime
+from datetime import datetime, date
 from data_storage import session_storage
 from PIL import Image
 
@@ -12,6 +12,35 @@ st.set_page_config(
     page_icon=icon,
     layout="wide"
 )
+
+# ============================================
+# GLOBAL SESSION STATE INITIALIZATION
+# ============================================
+# Initialize focus_settings with all required fields
+# This must exist before any page tries to access it
+
+if "focus_settings" not in st.session_state:
+    # Get today's date for daily reset logic
+    today = date.today().isoformat()
+    
+    st.session_state["focus_settings"] = {
+        "completed_sessions": 0,           # Sessions completed today
+        "daily_target": 5,                 # Default daily target (range 1-10)
+        "current_streak": 0,               # Current consecutive days streak
+        "total_focus_time": 0,             # Total focus time in minutes
+        "streak_updated_today": False,     # Whether streak was already incremented today
+        "last_active_day": today           # Last day user was active (for daily reset)
+    }
+else:
+    # Check for daily reset
+    today = date.today().isoformat()
+    last_active_day = st.session_state["focus_settings"].get("last_active_day", today)
+    
+    # If it's a new day, reset daily counters
+    if last_active_day != today:
+        st.session_state["focus_settings"]["completed_sessions"] = 0
+        st.session_state["focus_settings"]["streak_updated_today"] = False
+        st.session_state["focus_settings"]["last_active_day"] = today
 
 # Custom CSS for modern purple/white theme - REDESIGNED
 st.markdown("""
@@ -659,3 +688,4 @@ with st.expander("ℹ️ Getting Started"):
 print("✅ PAUSE Control Center loaded successfully!")
 print("🎨 Modern, clean UI with action-oriented design")
 print("🚀 Run with: streamlit run app.py")
+

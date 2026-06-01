@@ -124,6 +124,103 @@ st.markdown("""
         font-size: 0.85rem;
         font-weight: 600;
     }
+    
+    /* Streamlit button overrides for purple theme */
+    .stButton > button {
+        border-radius: 8px !important;
+        border: none !important;
+        font-weight: 600 !important;
+        transition: all 0.3s ease !important;
+    }
+    
+    .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #8A2BE2, #4B0082) !important;
+        color: white !important;
+    }
+    
+    .stButton > button[kind="primary"]:hover {
+        background: linear-gradient(135deg, #4B0082, #8A2BE2) !important;
+        transform: translateY(-2px) !important;
+        box-shadow: 0 5px 15px rgba(138, 43, 226, 0.3) !important;
+    }
+    
+    .stButton > button[kind="secondary"] {
+        background: transparent !important;
+        color: #8A2BE2 !important;
+        border: 2px solid #8A2BE2 !important;
+    }
+    
+    .stButton > button[kind="secondary"]:hover {
+        background: #8A2BE2 !important;
+        color: white !important;
+        transform: translateY(-2px) !important;
+    }
+    
+    /* Form styling */
+    .stTextInput > div > div > input {
+        border-radius: 8px !important;
+        border: 1px solid rgba(138, 43, 226, 0.2) !important;
+    }
+    
+    .stTextInput > div > div > input:focus {
+        border-color: #8A2BE2 !important;
+        box-shadow: 0 0 0 2px rgba(138, 43, 226, 0.1) !important;
+    }
+    
+    .stCheckbox > div {
+        color: #4B0082 !important;
+    }
+    
+    /* Metric styling */
+    [data-testid="stMetric"] {
+        background: linear-gradient(135deg, rgba(138, 43, 226, 0.05), rgba(75, 0, 130, 0.05)) !important;
+        padding: 15px !important;
+        border-radius: 12px !important;
+        border: 1px solid rgba(138, 43, 226, 0.1) !important;
+    }
+    
+    [data-testid="stMetricLabel"] {
+        color: #666 !important;
+        font-size: 0.9rem !important;
+    }
+    
+    [data-testid="stMetricValue"] {
+        color: #4B0082 !important;
+        font-size: 1.8rem !important;
+        font-weight: 700 !important;
+    }
+    
+    /* Divider styling */
+    hr {
+        border: none !important;
+        height: 1px !important;
+        background: linear-gradient(90deg, transparent, rgba(138, 43, 226, 0.2), transparent) !important;
+        margin: 20px 0 !important;
+    }
+    
+    /* Expander styling */
+    .streamlit-expanderHeader {
+        background: #F9F5FF !important;
+        border-radius: 8px !important;
+        border: 1px solid rgba(138, 43, 226, 0.1) !important;
+        color: #4B0082 !important;
+        font-weight: 600 !important;
+    }
+    
+    .streamlit-expanderHeader:hover {
+        background: #F5F0FF !important;
+    }
+    
+    /* Responsive adjustments */
+    @media (max-width: 768px) {
+        .room-card-container {
+            padding: 15px !important;
+        }
+        
+        [data-testid="stMetricValue"] {
+            font-size: 1.5rem !important;
+        }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -219,26 +316,61 @@ def main():
         
         for friend in mock_friends:
             with st.container():
-                st.markdown(f"""
-                <div class="friend-card">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <div>
-                            <strong>{friend['username']}</strong>
-                            <div style="display: flex; align-items: center; margin-top: 5px;">
-                                <span class="status-indicator status-{friend['status'].lower()}"></span>
-                                <span style="font-size: 0.85rem; color: #666;">{friend['status']}</span>
-                            </div>
-                        </div>
-                        <div style="text-align: right;">
-                            <div style="font-size: 0.8rem; color: #999;">{friend['last_active']}</div>
-                            <button style="margin-top: 5px; padding: 4px 12px; font-size: 0.8rem;" 
-                                    onclick="alert('Invite sent to {friend['username']}!')">
-                                Invite to Room
-                            </button>
-                        </div>
-                    </div>
-                </div>
+                # Friend card container
+                st.markdown("""
+                <style>
+                    .streamlit-friend-card {
+                        background: #F9F5FF;
+                        border-radius: 12px;
+                        padding: 15px;
+                        margin-bottom: 10px;
+                        border-left: 4px solid #8A2BE2;
+                        transition: all 0.3s ease;
+                    }
+                    .streamlit-friend-card:hover {
+                        transform: translateY(-2px);
+                        box-shadow: 0 5px 15px rgba(138, 43, 226, 0.15);
+                    }
+                </style>
                 """, unsafe_allow_html=True)
+                
+                st.markdown('<div class="streamlit-friend-card">', unsafe_allow_html=True)
+                
+                col_friend1, col_friend2 = st.columns([2, 1])
+                
+                with col_friend1:
+                    # Friend name and status
+                    st.markdown(f"<strong style='color: #4B0082;'>{friend['username']}</strong>", unsafe_allow_html=True)
+                    
+                    # Status indicator
+                    status_color = {
+                        'online': '#3B82F6',
+                        'focusing': '#10B981', 
+                        'break': '#F59E0B',
+                        'offline': '#9CA3AF'
+                    }.get(friend['status'].lower(), '#9CA3AF')
+                    
+                    st.markdown(f"""
+                    <div style='display: flex; align-items: center; margin-top: 5px;'>
+                        <div style='width: 10px; height: 10px; border-radius: 50%; background: {status_color}; margin-right: 8px;'></div>
+                        <span style='font-size: 0.85rem; color: #666;'>{friend['status']}</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with col_friend2:
+                    # Last active and invite button
+                    st.markdown(f"<div style='font-size: 0.8rem; color: #999; text-align: right;'>{friend['last_active']}</div>", unsafe_allow_html=True)
+                    
+                    # Invite button using Streamlit
+                    if st.button(
+                        "Invite",
+                        key=f"invite_{friend['username']}",
+                        use_container_width=True,
+                        type="secondary"
+                    ):
+                        st.success(f"Invitation sent to {friend['username']}!")
+                
+                st.markdown('</div>', unsafe_allow_html=True)
     
     st.markdown('</div>', unsafe_allow_html=True)  # End section card
     
@@ -254,106 +386,309 @@ def main():
         # Room List
         st.subheader("Your Rooms")
         
-        # Mock rooms
-        mock_rooms = [
-            {
-                "room_id": 1,
-                "room_name": "FYP Warriors",
-                "owner": "xiangyi",
-                "member_count": 3,
-                "is_private": False,
-                "voice_enabled": False,
-                "chat_enabled": True,
-                "joined_at": "2024-01-10"
-            },
-            {
-                "room_id": 2,
-                "room_name": "Study Group Alpha",
-                "owner": "amir",
-                "member_count": 5,
-                "is_private": True,
-                "voice_enabled": True,
-                "chat_enabled": True,
-                "joined_at": "2024-01-12"
-            },
-            {
-                "room_id": 3,
-                "room_name": "Focus Zone",
-                "owner": "danial",
-                "member_count": 2,
-                "is_private": False,
-                "voice_enabled": False,
-                "chat_enabled": True,
-                "joined_at": "2024-01-14"
-            }
-        ]
+        rooms = focus_room_storage.get_user_rooms(1)
         
-        for room in mock_rooms:
-            with st.container():
-                privacy_icon = "🔒" if room["is_private"] else "🌐"
-                voice_icon = "🎤" if room["voice_enabled"] else "🔇"
-                chat_icon = "💬" if room["chat_enabled"] else "🚫"
-                
-                st.markdown(f"""
-                <div class="room-card">
-                    <div style="display: flex; justify-content: space-between; align-items: start;">
-                        <div>
-                            <h4 style="margin: 0 0 5px 0; color: #4B0082;">{room['room_name']}</h4>
-                            <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-                                <span style="font-size: 0.85rem; color: #666;">👑 {room['owner']}</span>
-                                <span style="font-size: 0.85rem; color: #666;">👥 {room['member_count']} members</span>
-                                <span style="font-size: 0.85rem; color: #666;">{privacy_icon} {voice_icon} {chat_icon}</span>
-                            </div>
+        if not rooms:
+            st.info("You haven't joined any rooms yet. Create or join a room to get started!")
+        else:
+            for room in rooms:
+                # Create a container for each room card
+                with st.container():
+                    # Apply custom styling to the container
+                    st.markdown("""
+                    <style>
+                        .room-card-container {
+                            background: white;
+                            border-radius: 12px;
+                            padding: 20px;
+                            margin-bottom: 15px;
+                            border: 1px solid rgba(138, 43, 226, 0.15);
+                            box-shadow: 0 5px 15px rgba(138, 43, 226, 0.08);
+                            transition: all 0.3s ease;
+                        }
+                        .room-card-container:hover {
+                            box-shadow: 0 10px 25px rgba(138, 43, 226, 0.12);
+                            transform: translateY(-2px);
+                        }
+                    </style>
+                    """, unsafe_allow_html=True)
+                    
+                    # Room card container
+                    st.markdown('<div class="room-card-container">', unsafe_allow_html=True)
+                    
+                    # Room header with name and icons
+                    col_header1, col_header2 = st.columns([3, 1])
+                    
+                    with col_header1:
+                        # Room name with purple color
+                        st.markdown(f"<h4 style='color: #4B0082; margin: 0 0 10px 0;'>{room['room_name']}</h4>", unsafe_allow_html=True)
+                        
+                        # Room details row
+                        privacy_icon = "🔒" if room["is_private"] else "🌐"
+                        voice_icon = "🎤" if room["voice_enabled"] else "🔇"
+                        chat_icon = "💬" if room["chat_enabled"] else "🚫"
+                        
+                        col_details1, col_details2, col_details3 = st.columns(3)
+                        with col_details1:
+                            st.markdown(f"<div style='font-size: 0.85rem; color: #666;'>👑 {room['owner_name']}</div>", unsafe_allow_html=True)
+                        with col_details2:
+                            st.markdown(f"<div style='font-size: 0.85rem; color: #666;'>👥 {room['member_count']} members</div>", unsafe_allow_html=True)
+                        with col_details3:
+                            st.markdown(f"<div style='font-size: 0.85rem; color: #666;'>{privacy_icon} {voice_icon} {chat_icon}</div>", unsafe_allow_html=True)
+                    
+                    with col_header2:
+                        # Room status indicator
+                        room_info = focus_room_storage.get_room_info(room['room_id'])
+                        if room_info:
+                            is_private = "Private" if room_info['is_private'] else "Public"
+                            st.markdown(f"<div style='text-align: right; font-size: 0.8rem; color: #8A2BE2; font-weight: 600;'>{is_private}</div>", unsafe_allow_html=True)
+                    
+                    # Room information display
+                    st.markdown("---")
+                    
+                    # Room details in columns
+                    col_info1, col_info2, col_info3 = st.columns(3)
+                    
+                    with col_info1:
+                        st.markdown(f"""
+                        <div style='text-align: center;'>
+                            <div style='font-size: 0.75rem; color: #666;'>Room ID</div>
+                            <div style='font-size: 1rem; color: #4B0082; font-weight: 600;'>{room['room_id']}</div>
                         </div>
-                        <div>
-                            <button style="padding: 6px 15px; background: #8A2BE2; color: white; border: none; border-radius: 8px; cursor: pointer;"
-                                    onclick="alert('Entering {room['room_name']}...')">
-                                Enter Room
-                            </button>
+                        """, unsafe_allow_html=True)
+                    
+                    with col_info2:
+                        st.markdown(f"""
+                        <div style='text-align: center;'>
+                            <div style='font-size: 0.75rem; color: #666;'>Created</div>
+                            <div style='font-size: 0.9rem; color: #4B0082;'>{room['created_at'][:10] if room['created_at'] else 'N/A'}</div>
                         </div>
-                    </div>
-                    <div style="font-size: 0.8rem; color: #999; margin-top: 10px;">
-                        Joined: {room['joined_at']}
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+                        """, unsafe_allow_html=True)
+                    
+                    with col_info3:
+                        st.markdown(f"""
+                        <div style='text-align: center;'>
+                            <div style='font-size: 0.75rem; color: #666;'>You Joined</div>
+                            <div style='font-size: 0.9rem; color: #4B0082;'>{room['joined_at'][:10] if room['joined_at'] else 'N/A'}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    # Action buttons
+                    st.markdown("---")
+                    col_actions1, col_actions2, col_actions3 = st.columns([2, 2, 1])
+                    
+                    with col_actions1:
+                        # Enter Room button with purple styling
+                        if st.button(
+                            "🚪 Enter Room",
+                            key=f"enter_{room['room_id']}",
+                            use_container_width=True,
+                            type="primary"
+                        ):
+                            # User is already a member, just set active room
+                            st.session_state['active_room'] = room['room_id']
+                            st.session_state['active_room_name'] = room['room_name']
+                            st.session_state['active_room_owner'] = room['owner_name']
+                            
+                            st.success(f"Entering {room['room_name']}...")
+                            # In a real app, this would navigate to room view
+                    
+                    with col_actions2:
+                        # View Members button
+                        if st.button(
+                            "👥 View Members",
+                            key=f"members_{room['room_id']}",
+                            use_container_width=True
+                        ):
+                            members = focus_room_storage.get_room_members(room['room_id'])
+                            with st.expander(f"Room Members ({len(members)})"):
+                                for member in members:
+                                    status_color = {
+                                        'focusing': '#10B981',
+                                        'break': '#F59E0B',
+                                        'online': '#3B82F6',
+                                        'paused': '#6B7280',
+                                        'offline': '#9CA3AF'
+                                    }.get(member['status'], '#9CA3AF')
+                                    
+                                    st.markdown(f"""
+                                    <div style='display: flex; align-items: center; margin: 5px 0; padding: 8px; background: #F8F9FA; border-radius: 8px;'>
+                                        <div style='width: 10px; height: 10px; border-radius: 50%; background: {status_color}; margin-right: 10px;'></div>
+                                        <div style='flex: 1;'>
+                                            <strong>{member['username']}</strong>
+                                            <div style='font-size: 0.8rem; color: #666;'>{member['status'].title()}</div>
+                                        </div>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                    
+                    with col_actions3:
+                        # Delete Room button (only show if user is owner)
+                        if room['owner_id'] == 1:  # Current user ID (xiangyi)
+                            if st.button(
+                                "🗑️",
+                                key=f"delete_{room['room_id']}",
+                                use_container_width=True,
+                                help="Delete this room (owner only)"
+                            ):
+                                current_user_id = 1  # xiangyi's user_id
+                                success = focus_room_storage.delete_room(
+                                    room['room_id'],
+                                    user_id=current_user_id
+                                )
+                                
+                                if success:
+                                    st.success("Room deleted successfully!")
+                                    time.sleep(0.5)  # Brief delay to show message
+                                    st.rerun()
+                                else:
+                                    st.error("Failed to delete room. You may not be the owner.")
+                        else:
+                            # Leave Room button for non-owners
+                            if st.button(
+                                "🚪 Leave",
+                                key=f"leave_{room['room_id']}",
+                                use_container_width=True,
+                                type="secondary"
+                            ):
+                                current_user_id = 1  # xiangyi's user_id
+                                success = focus_room_storage.leave_room(
+                                    room['room_id'],
+                                    user_id=current_user_id
+                                )
+                                
+                                if success:
+                                    st.success("Left the room successfully!")
+                                    st.info(f"Debug: leave_room({room['room_id']}, {current_user_id}) = {success}")
+                                    time.sleep(0.5)  # Brief delay to show message
+                                    st.rerun()
+                                else:
+                                    st.error("Failed to leave room.")
+                                    st.info(f"Debug: leave_room({room['room_id']}, {current_user_id}) = {success}")
+                    
+                    st.markdown('</div>', unsafe_allow_html=True)  # End room card container
     
     with col_rooms2:
         # Create Room Form
         st.subheader("Create New Room")
         
-        with st.form("create_room_form"):
-            room_name = st.text_input("Room Name", placeholder="e.g., Study Session")
-            is_private = st.checkbox("Private Room", value=False)
-            voice_enabled = st.checkbox("Enable Voice Chat", value=False)
-            chat_enabled = st.checkbox("Enable Text Chat", value=True)
+        with st.form("create_room_form", clear_on_submit=True):
+            room_name = st.text_input("Room Name", placeholder="e.g., Study Session", help="Choose a descriptive name for your room")
+            is_private = st.checkbox("Private Room", value=False, help="Only invited friends can join private rooms")
+            voice_enabled = st.checkbox("Enable Voice Chat", value=False, help="Allow voice communication in the room")
+            chat_enabled = st.checkbox("Enable Text Chat", value=True, help="Enable text chat for room members")
             
-            create_submitted = st.form_submit_button("Create Room", type="primary")
+            create_submitted = st.form_submit_button("Create Room", type="primary", use_container_width=True)
             
             if create_submitted:
-                if room_name:
-                    st.success(f"Room '{room_name}' created successfully! (Mock)")
-                    st.info(f"Settings: Private={is_private}, Voice={voice_enabled}, Chat={chat_enabled}")
+                if not room_name:
+                    st.error("Please enter a room name")
                 else:
-                    st.warning("Please enter a room name")
+                    current_user_id = 1  # xiangyi's user_id
+                    room_id = focus_room_storage.create_room(
+                        room_name=room_name,
+                        owner_id=current_user_id,
+                        is_private=is_private,
+                        voice_enabled=voice_enabled,
+                        chat_enabled=chat_enabled
+                    )
+
+                    if room_id:
+                        st.success(f"Room '{room_name}' created successfully!")
+                        time.sleep(0.5)
+                        st.rerun()
+                    else:
+                        st.error("Failed to create room. Please try again.")
         
-        # Available Rooms (Public)
+        # Public Rooms Section
         st.subheader("Public Rooms")
+        st.caption("Join public rooms to study with others")
         
-        mock_public_rooms = [
-            {"name": "Global Study Hub", "members": 12, "topic": "General Study"},
-            {"name": "CS Students", "members": 8, "topic": "Computer Science"},
-            {"name": "Late Night Crew", "members": 5, "topic": "Night Owls"}
-        ]
+        public_rooms = focus_room_storage.get_public_rooms()
         
-        for room in mock_public_rooms:
-            col_room1, col_room2 = st.columns([3, 1])
-            with col_room1:
-                st.write(f"**{room['name']}**")
-                st.caption(f"{room['topic']} • {room['members']} members")
-            with col_room2:
-                if st.button("Join", key=f"join_{room['name']}"):
-                    st.info(f"Joined {room['name']} (Mock)")
+        for room in public_rooms:
+            with st.container():
+                # Public room card container
+                st.markdown("""
+                <style>
+                    .public-room-card {
+                        background: linear-gradient(135deg, rgba(138, 43, 226, 0.03), rgba(75, 0, 130, 0.03));
+                        border-radius: 12px;
+                        padding: 15px;
+                        margin-bottom: 10px;
+                        border: 1px solid rgba(138, 43, 226, 0.1);
+                        transition: all 0.3s ease;
+                    }
+                    .public-room-card:hover {
+                        background: linear-gradient(135deg, rgba(138, 43, 226, 0.05), rgba(75, 0, 130, 0.05));
+                        transform: translateY(-2px);
+                        box-shadow: 0 5px 15px rgba(138, 43, 226, 0.1);
+                    }
+                </style>
+                """, unsafe_allow_html=True)
+                
+                st.markdown('<div class="public-room-card">', unsafe_allow_html=True)
+                
+                col_public1, col_public2 = st.columns([3, 1])
+                
+                with col_public1:
+                    # Room name and owner
+                    st.markdown(f"<h5 style='color: #4B0082; margin: 0 0 5px 0;'>{room['room_name']}</h5>", unsafe_allow_html=True)
+                    st.markdown(
+                        f"<div style='font-size: 0.85rem; color: #666; margin-bottom: 5px;'>"
+                        f"Created by {room.get('owner_name', 'Unknown')}"
+                        f"</div>",
+                        unsafe_allow_html=True
+                    )    
+                                    
+                    # Room stats
+                    col_stats1, col_stats2 = st.columns(2)
+                    with col_stats1:
+                        st.markdown(f"""
+                        <div style='display: flex; align-items: center; gap: 5px;'>
+                            <span style='color: #8A2BE2;'>👥</span>
+                            <span style='font-size: 0.8rem; color: #666;'>{room.get('member_count', 0)} members</span>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    with col_stats2:
+                        # Room features
+                        privacy_icon = "🔒" if room.get("is_private", False) else "🌐"
+                        voice_icon = "🎤" if room.get("voice_enabled", False) else "🔇"
+                        chat_icon = "💬" if room.get("chat_enabled", True) else "🚫"
+                        st.markdown(f"""
+                        <div style='display: flex; align-items: center; gap: 5px;'>
+                            <span style='color: #8A2BE2;'>{privacy_icon} {voice_icon} {chat_icon}</span>
+                        </div>
+                        """, unsafe_allow_html=True)
+                
+                with col_public2:
+                    # Join button with purple styling
+                    if st.button(
+                        "Join Room",
+                        key=f"join_public_{room.get('room_id', 0)}",
+                        use_container_width=True,
+                        type="secondary"
+                    ):
+                        # REAL join logic - use actual room_id and user_id
+                        current_user_id = 1  # xiangyi's user_id
+                        room_id = room.get('room_id')
+                        
+                        if room_id:
+                            success = focus_room_storage.join_room(
+                                room_id=room_id, 
+                                user_id=current_user_id
+                            )
+                            
+                            if success:
+                                st.success(f"Joined {room.get('room_name', 'the room')} successfully!")
+                                time.sleep(0.5)  # Brief delay to show message
+                                st.rerun()
+                            else:
+                                st.error(f"Failed to join room. You may already be a member.")
+                        else:
+                            st.error("Invalid room ID")
+                
+                st.markdown('</div>', unsafe_allow_html=True)
     
     st.markdown('</div>', unsafe_allow_html=True)  # End section card
     

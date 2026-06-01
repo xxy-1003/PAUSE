@@ -1,6 +1,44 @@
 import streamlit as st
 import time
 import os
+from datetime import date
+from pause_storage import session_storage
+
+def complete_session(focus_minutes: int):
+    """
+    Complete a focus session and update statistics.
+    ONLY this function should update session count and streak.
+    
+    Args:
+        focus_minutes: Duration of the completed focus session in minutes
+    """
+    # Get focus settings
+    settings = st.session_state["focus_settings"]
+    
+    # 1. Increment completed sessions
+    settings["completed_sessions"] += 1
+    
+    # 2. Add focus time to total
+    settings["total_focus_time"] += focus_minutes
+    
+    # 3. Check and update streak if daily target is achieved
+    # Streak is only incremented once per day when target is reached
+    if not settings.get("streak_updated_today", False):
+        if settings["completed_sessions"] >= settings["daily_target"]:
+            settings["current_streak"] += 1
+            settings["streak_updated_today"] = True
+            st.success(f"🎉 Daily target reached! Streak updated to {settings['current_streak']} days!")
+    else:
+        st.success("Session completed!")
+    
+    # Save session to database
+    try:
+        session_storage.save_session(
+            username="default_user",
+            duration_minutes=focus_minutes
+        )
+    except Exception as e:
+        st.error(f"Failed to save session: {e}")
 
 # ===== CRITICAL: SESSION STATE INITIALIZATION =====
 # Initialize ALL session state variables FIRST before any UI code
@@ -35,9 +73,6 @@ if "break_paused" not in st.session_state:
     st.session_state.break_paused = False
 
 # Additional session state variables for full functionality
-if "session_count" not in st.session_state:
-    st.session_state.session_count = 0
-
 if "timer_status" not in st.session_state:
     st.session_state.timer_status = "stopped"  # "running", "paused", "stopped", "completed"
 
@@ -68,18 +103,19 @@ if "interval_break_duration" not in st.session_state:
 if "interval_break_start_time" not in st.session_state:
     st.session_state.interval_break_start_time = 0  # Timestamp when current interval started
 
-# Session Statistics variables
-if "completed_sessions" not in st.session_state:
-    st.session_state.completed_sessions = 0
-
-if "total_focus_time" not in st.session_state:
-    st.session_state.total_focus_time = 0  # in minutes
-
-if "current_streak" not in st.session_state:
-    st.session_state.current_streak = 0
-
-if "daily_target" not in st.session_state:
-    st.session_state.daily_target = 5  # Default daily target
+# Session Statistics variables - Now using global focus_settings dictionary
+# Ensure focus_settings exists (it should be initialized in app.py)
+if "focus_settings" not in st.session_state:
+    # Fallback initialization if app.py didn't run first
+    today = date.today().isoformat()
+    st.session_state["focus_settings"] = {
+        "completed_sessions": 0,
+        "daily_target": 5,
+        "current_streak": 0,
+        "total_focus_time": 0,
+        "streak_updated_today": False,
+        "last_active_day": today
+    }
 
 if "auto_start_break" not in st.session_state:
     st.session_state.auto_start_break = True
@@ -195,21 +231,19 @@ def check_and_update_session_completion():
         
         # Check if we haven't already marked this session as completed
         if not st.session_state.session_completed_flag:
-            # Increment completed sessions
-            st.session_state.completed_sessions += 1
-            
-            # Add focus time to total (convert seconds to minutes)
+            # Calculate focus minutes from session
             focus_minutes = st.session_state.original_time // 60
-            st.session_state.total_focus_time += focus_minutes
             
+            # Use the centralized complete_session function
+            complete_session(focus_minutes)
+
             # Mark session as completed to prevent duplicate increments
             st.session_state.session_completed_flag = True
             
             # Play completion sound
             play_session_completion_sound()
             
-            # Show completion message
-            st.success(f"🎉 Focus session completed! Total: {st.session_state.completed_sessions} sessions today")
+            # Show completion message (already shown in complete_session)
             
             # Auto-start break if enabled
             if st.session_state.auto_start_break:
@@ -917,7 +951,7 @@ else:
         # Focus session length selector
         session_length = st.select_slider(
             "Focus Session Duration",
-            options=[15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 115, 120],
+            options=[1, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 115, 120],
             value=st.session_state.original_time // 60,
             help="Select your preferred focus session duration",
             key="focus_duration_slider"
@@ -1050,59 +1084,67 @@ col_stat1, col_stat2 = st.columns(2)
 # LEFT COLUMN
 # -------------------------
 with col_stat1:
+    # Get focus settings for display
+    settings = st.session_state["focus_settings"]
 
     st.metric(
         "Completed Sessions Today",
-        st.session_state.completed_sessions
+        settings["completed_sessions"]
     )
 
     st.metric(
         "Focus Time Today",
-        f"{st.session_state.total_focus_time} min"
+        f"{settings['total_focus_time']} min"
     )
 
     st.metric(
         "Current Streak",
-        f"{st.session_state.current_streak} days"
+        f"{settings['current_streak']} days"
     )
 
 # -------------------------
 # RIGHT COLUMN
 # -------------------------
+settings = st.session_state["focus_settings"]
+
 with col_stat2:
 
     st.markdown("**🎯 Daily Session Target**")
 
+    # =====================================
+    # LOCK WHEN TIMER IS RUNNING
+    # =====================================
     if timer_active:
-
         st.info("🔒 Statistics settings locked")
 
         st.markdown(
-            f"**Target:** {st.session_state.daily_target} Sessions"
+            f"**Target:** {settings['daily_target']} Sessions"
         )
 
     else:
-
-        daily_target = st.select_slider(
+        new_target = st.select_slider(
             "Target Sessions Per Day",
-            options=list(range(1, 21)),
-            value=st.session_state.daily_target,
-            help="Set your daily focus session target",
+            options=list(range(1, 11)),  # ⭐ 改成 1–10
+            value=settings["daily_target"],
             key="daily_target_slider"
         )
 
-        if daily_target != st.session_state.daily_target:
-            st.session_state.daily_target = daily_target
+        settings["daily_target"] = new_target
 
+    # =====================================
+    # CURRENT PROGRESS
+    # =====================================
     st.markdown(
-        f"**Current:** {st.session_state.completed_sessions} Sessions"
+        f"**Current:** {settings['completed_sessions']} Sessions"
     )
 
-    if st.session_state.daily_target > 0:
+    # =====================================
+    # PROGRESS BAR
+    # =====================================
+    if settings["daily_target"] > 0:
 
         progress = min(
-            st.session_state.completed_sessions /
-            st.session_state.daily_target,
+            settings["completed_sessions"] / settings["daily_target"],
             1.0
         )
 
@@ -1110,11 +1152,14 @@ with col_stat2:
 
         st.caption(
             f"Daily progress: "
-            f"{st.session_state.completed_sessions}/"
-            f"{st.session_state.daily_target} "
+            f"{settings['completed_sessions']}/"
+            f"{settings['daily_target']} "
             f"sessions ({int(progress * 100)}%)"
         )
 
+    # =====================================
+    # RESET SECTION
+    # =====================================
     if not timer_active:
 
         st.markdown("---")
@@ -1125,36 +1170,19 @@ with col_stat2:
             key="reset_stats",
             use_container_width=True
         ):
+            # Get today's date for reset
+            today = date.today().isoformat()
+            
+            st.session_state["focus_settings"] = {
+                "completed_sessions": 0,
+                "daily_target": settings["daily_target"],  # Keep user's target setting
+                "current_streak": 0,
+                "total_focus_time": 0,
+                "streak_updated_today": False,
+                "last_active_day": today
+            }
 
-            st.warning(
-                "Are you sure you want to reset all statistics?"
-            )
-
-            col_confirm1, col_confirm2 = st.columns(2)
-
-            with col_confirm1:
-
-                if st.button(
-                    "Yes, Reset",
-                    key="confirm_reset",
-                    use_container_width=True
-                ):
-                    st.session_state.completed_sessions = 0
-                    st.session_state.total_focus_time = 0
-                    st.session_state.current_streak = 0
-
-                    st.success(
-                        "Statistics reset successfully!"
-                    )
-
-            with col_confirm2:
-
-                if st.button(
-                    "Cancel",
-                    key="cancel_reset",
-                    use_container_width=True
-                ):
-                    st.info("Reset cancelled")
+            st.success("Statistics reset successfully!")
                     
 # ============================================
 # SECTION 5: AUTO-SETTINGS

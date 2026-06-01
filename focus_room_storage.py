@@ -446,7 +446,7 @@ class FocusRoomStorage:
         except Exception as e:
             print(f"Error creating room: {e}")
             return None
-    
+        
     def delete_room(self, room_id: int, user_id: int) -> bool:
         """
         Delete a focus room (only owner can delete)
@@ -713,6 +713,46 @@ class FocusRoomStorage:
             print(f"Error getting user rooms: {e}")
             return []
     
+    def get_public_rooms(self) -> List[Dict]:
+        """
+        Get all public rooms (is_private = 0)
+        
+        Returns:
+            List of public room dictionaries with member_count
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT 
+                    r.*,
+                    u.username as owner_name,
+                    COUNT(rm.user_id) as member_count
+                FROM focus_rooms r
+                JOIN users u ON r.owner_id = u.user_id
+                LEFT JOIN room_members rm ON r.room_id = rm.room_id
+                WHERE r.is_private = 0
+                GROUP BY r.room_id
+                ORDER BY r.created_at DESC
+            ''')
+            
+            rooms = [dict(row) for row in cursor.fetchall()]
+            
+            # Convert boolean values
+            for room in rooms:
+                room['is_private'] = bool(room['is_private'])
+                room['voice_enabled'] = bool(room['voice_enabled'])
+                room['chat_enabled'] = bool(room['chat_enabled'])
+            
+            conn.close()
+            
+            return rooms
+        except Exception as e:
+            print(f"Error getting public rooms: {e}")
+            return []
+    
     def search_users(self, query: str, exclude_user_id: int = None) -> List[Dict]:
         """
         Search for users by username
@@ -755,6 +795,25 @@ class FocusRoomStorage:
         except Exception as e:
             print(f"Error searching users: {e}")
             return []
+
+    def get_public_rooms(self):
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT r.room_id, r.room_name, r.owner_id,
+                r.is_private, r.voice_enabled, r.chat_enabled,
+                u.username as owner_name
+            FROM focus_rooms r
+            JOIN users u ON r.owner_id = u.user_id
+            WHERE r.is_private = 0
+            ORDER BY r.created_at DESC
+        """)
+
+        rooms = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+        return rooms
     
     # ============================================
     # SAMPLE DATA GENERATION
